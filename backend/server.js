@@ -54,7 +54,7 @@ function sanitizeErrorResponse(error, defaultMessage = 'An error occurred') {
 // Middleware
 app.use(helmet()); // Security headers
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: ['http://localhost:3000', 'https://plaid-financial-system-api.onrender.com'],
   credentials: true
 }));
 app.use(cookieParser()); // Parse cookies
@@ -176,8 +176,8 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     res.cookie('session', token, {
       httpOnly: true,
       secure: isProduction,
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      sameSite: isProduction ? 'none' : 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000
     });
     
     // Audit log: successful login

@@ -19,6 +19,7 @@ const BalanceSheet = require('./models-sqlite/BalanceSheet');
 const InvestmentSnapshot = require('./models-sqlite/InvestmentSnapshot');
 
 const app = express();
+app.set('trust proxy', 1); // Trust first proxy (Render)
 
 // Import routes
 const clientRoutes = require('./routes/clients');

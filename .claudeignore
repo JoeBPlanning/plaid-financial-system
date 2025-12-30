@@ -1,0 +1,82 @@
+# Claude Code Ignore File
+# Prevents Claude from reading sensitive files
+
+# Environment files (CRITICAL - contains secrets)
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+
+# Secrets and credentials
+**/secrets/
+**/credentials/
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/serviceAccountKey.json
+
+# Database files
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+**/*.db-journal
+
+# API keys and tokens
+**/api-keys.json
+**/tokens.json
+**/.credentials
+
+# SSH and certificates
+**/.ssh/
+**/id_rsa
+**/id_rsa.pub
+**/*.crt
+**/*.csr
+
+# Cloud provider credentials
+**/.aws/
+**/.azure/
+**/.gcloud/
+
+# Node modules (too large)
+**/node_modules/
+
+# Build outputs (generated)
+**/dist/
+**/build/
+**/.next/
+**/.cache/
+
+# Logs (may contain sensitive data)
+**/*.log
+**/logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/settings.json
+.idea/
+
+# Temporary files
+**/tmp/
+**/temp/
+**/*.tmp
+
+# Backup files
+**/*.backup
+**/*.bak
+**/*.old
+
+# Test coverage
+**/coverage/
+
+# Git
+.git/

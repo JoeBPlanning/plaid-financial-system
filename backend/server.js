@@ -23,6 +23,7 @@ app.set('trust proxy', 1); // Trust first proxy (Render)
 
 // Import routes
 const clientRoutes = require('./routes/clients');
+const inviteRoutes = require('./routes/invites');
 
 // Import services
 const transactionsSync = require('./services/transactionsSync');
@@ -102,6 +103,9 @@ app.get('/health', (req, res) => {
 
 // Client management routes
 app.use('/api/clients', clientRoutes);
+
+// Invite routes
+app.use('/api/invites', inviteRoutes);
 
 // =============================================================================
 // AUTHENTICATION ROUTES

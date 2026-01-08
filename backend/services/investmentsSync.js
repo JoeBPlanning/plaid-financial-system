@@ -1,6 +1,6 @@
 const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
-const Client = require('../models-sqlite/Client');
-const Investment = require('../models-sqlite/Investment');
+const Client = require('../models-supabase/Client');
+const Investment = require('../models-supabase/Investment');
 
 // Initialize Plaid client
 const configuration = new Configuration({

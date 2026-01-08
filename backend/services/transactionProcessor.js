@@ -1,6 +1,6 @@
 const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
-const Client = require('../models-sqlite/Client');
-const MonthlySummary = require('../models-sqlite/MonthlySummary');
+const Client = require('../models-supabase/Client');
+const MonthlySummary = require('../models-supabase/MonthlySummary');
 const moment = require('moment');
 
 // Initialize Plaid client
@@ -228,7 +228,7 @@ class TransactionProcessor {
 
       // Fetch transactions from database instead of Plaid API
       // This uses the transactions that were already synced via transactionsSync
-      const Transaction = require('../models-sqlite/Transaction');
+      const Transaction = require('../models-supabase/Transaction');
       const transactions = await Transaction.find({
         clientId,
         monthYear: month

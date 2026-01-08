@@ -2,7 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 
-const Client = require('../models-sqlite/Client');
+const Client = require('../models-supabase/Client');
 const transactionsSync = require('../services/transactionsSync');
 const investmentsSync = require('../services/investmentsSync');
 

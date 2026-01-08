@@ -1,6 +1,6 @@
 const moment = require('moment');
-const Client = require('../models-sqlite/Client');
-const BalanceSheet = require('../models-sqlite/BalanceSheet');
+const Client = require('../models-supabase/Client');
+const BalanceSheet = require('../models-supabase/BalanceSheet');
 const TransactionProcessor = require('./transactionProcessor');
 const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
 

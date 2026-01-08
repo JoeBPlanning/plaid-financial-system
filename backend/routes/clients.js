@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const Client = require('../models-sqlite/Client');
-const MonthlySummary = require('../models-sqlite/MonthlySummary');
-const Transaction = require('../models-sqlite/Transaction');
+const Client = require('../models-supabase/Client');
+const MonthlySummary = require('../models-supabase/MonthlySummary');
+const Transaction = require('../models-supabase/Transaction');
 const TransactionProcessor = require('../services/transactionProcessor');
 const moment = require('moment');
 const { requireAuth, ensureClientOwnership } = require('../middleware/auth');
@@ -53,9 +53,21 @@ router.get('/advisor/:advisorId', requireAuth, async (req, res) => {
     const clients = await Client.find({ 
       advisorId, 
       isActive: true 
-    }).select('-plaidAccessTokens.accessToken'); // Don't return sensitive tokens
+    });
     
-    res.json({ clients });
+    // Remove sensitive access tokens from response
+    const safeClients = clients.map(client => {
+      const { plaidAccessTokens, ...safeClient } = client.toObject ? client.toObject() : client;
+      if (plaidAccessTokens) {
+        safeClient.plaidAccessTokens = plaidAccessTokens.map(token => {
+          const { accessToken, ...safeToken } = token;
+          return safeToken; // Return token without accessToken field
+        });
+      }
+      return safeClient;
+    });
+    
+    res.json({ clients: safeClients });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -67,14 +79,22 @@ router.get('/:clientId', requireAuth, ensureClientOwnership, async (req, res) =>
     // Derive clientId exclusively from authenticated JWT
     const clientId = req.user.clientId;
     
-    const client = await Client.findOne({ clientId })
-      .select('-plaidAccessTokens.accessToken'); // Don't return sensitive tokens
+    const client = await Client.findOne({ clientId });
     
     if (!client) {
       return res.status(404).json({ error: 'Client not found' });
     }
     
-    res.json({ client });
+    // Remove sensitive access tokens from response
+    const { plaidAccessTokens, ...safeClient } = client.toObject ? client.toObject() : client;
+    if (plaidAccessTokens) {
+      safeClient.plaidAccessTokens = plaidAccessTokens.map(token => {
+        const { accessToken, ...safeToken } = token;
+        return safeToken; // Return token without accessToken field
+      });
+    }
+    
+    res.json({ client: safeClient });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

@@ -1,22 +1,25 @@
+// Load environment variables based on NODE_ENV
+const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development';
+require('dotenv').config({ path: envFile });
+
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const moment = require('moment');
 const bcrypt = require('bcrypt');
 const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
-require('dotenv').config();
 
-// Initialize SQLite database
-const { initDatabase } = require('./database');
+// Initialize Supabase database
+const { initDatabase } = require('./database-supabase');
 initDatabase();
 
-// Import SQLite models
-const Client = require('./models-sqlite/Client');
-const Transaction = require('./models-sqlite/Transaction');
-const MonthlySummary = require('./models-sqlite/MonthlySummary');
-const Investment = require('./models-sqlite/Investment');
-const BalanceSheet = require('./models-sqlite/BalanceSheet');
-const InvestmentSnapshot = require('./models-sqlite/InvestmentSnapshot');
+// Import Supabase models
+const Client = require('./models-supabase/Client');
+const Transaction = require('./models-supabase/Transaction');
+const MonthlySummary = require('./models-supabase/MonthlySummary');
+const Investment = require('./models-supabase/Investment');
+const BalanceSheet = require('./models-supabase/BalanceSheet');
+const InvestmentSnapshot = require('./models-supabase/InvestmentSnapshot');
 
 const app = express();
 app.set('trust proxy', 1); // Trust first proxy (Render)
@@ -30,7 +33,7 @@ const transactionsSync = require('./services/transactionsSync');
 const investmentsSync = require('./services/investmentsSync');
 const balanceSheetSnapshot = require('./services/balanceSheetSnapshot');
 const investmentSnapshot = require('./services/investmentSnapshot');
-const { generateToken, requireAuth, ensureClientOwnership, requireAdmin } = require('./middleware/auth');
+const { requireAuth, ensureClientOwnership, requireAdmin, supabase } = require('./middleware/auth');
 const { logAuthEvent, logAdminAction, logSecurityEvent } = require('./middleware/auditLogger');
 
 // Security middleware
@@ -54,8 +57,24 @@ function sanitizeErrorResponse(error, defaultMessage = 'An error occurred') {
 
 // Middleware
 app.use(helmet()); // Security headers
+// CORS configuration - allow both development and production frontends
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://plaid-financial-system-api.onrender.com',
+  process.env.FRONTEND_URL // Allow custom frontend URL from env
+].filter(Boolean); // Remove undefined values
+
 app.use(cors({
-  origin: ['http://localhost:3000', 'https://plaid-financial-system-api.onrender.com'],
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
 app.use(cookieParser()); // Parse cookies
@@ -84,20 +103,20 @@ const plaidClient = new PlaidApi(configuration);
 
 // Basic routes
 app.get('/', (req, res) => {
-  res.json({ 
+  res.json({
     message: 'Plaid Financial System API is running!',
     timestamp: new Date().toISOString(),
     environment: process.env.PLAID_ENV || 'sandbox',
-    database: 'connected (SQLite)'
+    database: 'connected (Supabase/PostgreSQL)'
   });
 });
 
 app.get('/health', (req, res) => {
-  res.json({ 
+  res.json({
     status: 'Server is healthy',
     uptime: process.uptime(),
     plaid_env: process.env.PLAID_ENV,
-    database_status: 'connected (SQLite)'
+    database_status: 'connected (Supabase/PostgreSQL)'
   });
 });
 
@@ -110,267 +129,27 @@ app.use('/api/invites', inviteRoutes);
 // =============================================================================
 // AUTHENTICATION ROUTES
 // =============================================================================
+// NOTE: Authentication is now handled by Supabase Auth on the frontend
+// The backend only verifies Supabase JWT tokens using the requireAuth middleware
+// Old login/register/logout routes have been removed
 
-// Login route (with rate limiting)
-app.post('/api/auth/login', loginLimiter, async (req, res) => {
+// Optional: Endpoint to get current user info (requires authentication)
+app.get('/api/auth/me', requireAuth, async (req, res) => {
   try {
-    const { username, password } = req.body;
-    
-    // Input validation
-    if (!username || !password) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Username and password are required' 
-      });
-    }
-    
-    // Find client by username
-    const client = await Client.findOne({ username });
-    
-    // Always perform password check to prevent timing attacks
-    // Use a dummy hash if client doesn't exist to maintain consistent timing
-    let passwordValid = false;
-    
-    if (client) {
-      // Check if client is active (but don't reveal this in error message)
-      if (!client.isActive) {
-        // Use same error message to prevent account status enumeration
-        return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    res.json({
+      success: true,
+      user: {
+        id: req.user.clientId,
+        email: req.user.email,
+        name: req.user.name,
+        role: req.user.role
       }
-      
-      // Verify password (check if it's hashed or plain text for migration)
-      if (client.password && client.password.startsWith('$2')) {
-        // Password is hashed with bcrypt
-        passwordValid = await bcrypt.compare(password, client.password);
-      } else {
-        // Legacy plain text password - migrate to hashed
-        passwordValid = client.password === password;
-        if (passwordValid) {
-          // Hash the password and update it
-          const hashedPassword = await bcrypt.hash(password, 10);
-          await Client.findOneAndUpdate(
-            { clientId: client.clientId },
-            { password: hashedPassword }
-          );
-        }
-      }
-    } else {
-      // Perform dummy bcrypt comparison to prevent timing attacks
-      // This ensures similar response time whether user exists or not
-      await bcrypt.compare(password, '$2b$10$dummyhashthatwillnevermatch');
-    }
-    
-    // Use same error message regardless of whether username or password was wrong
-    // This prevents username enumeration
-    if (!client || !passwordValid) {
-      // Audit log: failed login attempt
-      logAuthEvent('login_failed', username, req.ip, false, { reason: 'invalid_credentials' });
-      return res.status(401).json({ success: false, error: 'Invalid credentials' });
-    }
-    
-    // Generate JWT token
-    const token = generateToken(client.clientId);
-    
-    // Remove password from response
-    const clientResponse = client.toObject();
-    delete clientResponse.password;
-    
-    // Set JWT in HttpOnly cookie
-    const isProduction = process.env.NODE_ENV === 'production';
-    res.cookie('session', token, {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: isProduction ? 'none' : 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
-    
-    // Audit log: successful login
-    logAuthEvent('login_success', client.clientId, req.ip, true);
-    
-    // Return response without token
-    res.json({ 
-      success: true, 
-      client: clientResponse,
-      message: 'Login successful'
     });
   } catch (error) {
-    // Log error for server-side debugging
-    console.error('Login error:', error);
-    
-    // Never expose error details or stack traces in response
-    const isProduction = process.env.NODE_ENV === 'production';
-    res.status(500).json({ 
-      success: false, 
-      error: 'Login failed. Please try again.' 
-    });
-  }
-});
-
-// Logout route
-// Note: Does not require authentication - allows clearing cookie even if token is invalid/expired
-app.post('/api/auth/logout', (req, res) => {
-  try {
-    // Try to get clientId from token if available (for audit logging)
-    let clientId = null;
-    try {
-      const token = req.cookies?.session;
-      if (token) {
-        const jwt = require('jsonwebtoken');
-        const { JWT_SECRET } = require('./middleware/auth');
-        const decoded = jwt.verify(token, JWT_SECRET);
-        clientId = decoded.clientId;
-      }
-    } catch (e) {
-      // Token invalid/expired - that's okay for logout
-    }
-    
-    // Always clear the session cookie, regardless of authentication status
-    // This ensures the cookie is removed even if the token is expired or invalid
-    const isProduction = process.env.NODE_ENV === 'production';
-    res.clearCookie('session', {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: 'strict'
-    });
-    
-    // Audit log: logout
-    if (clientId) {
-      logAuthEvent('logout', clientId, req.ip, true);
-    }
-    
-    res.json({ 
-      success: true, 
-      message: 'Logged out successfully' 
-    });
-  } catch (error) {
-    console.error('Logout error:', error);
-    // Even if there's an error, try to clear the cookie
-    const isProduction = process.env.NODE_ENV === 'production';
-    res.clearCookie('session', {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: 'strict'
-    });
-    res.status(500).json(sanitizeErrorResponse(error, 'Logout failed'));
-  }
-});
-
-// Register route (with rate limiting)
-app.post('/api/auth/register', registerLimiter, async (req, res) => {
-  try {
-    const { username, password, email, name, advisorId } = req.body;
-    
-    // Input validation
-    if (!username || !password || !email || !name) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Username, password, email, and name are required' 
-      });
-    }
-    
-    // Check if username or email already exists
-    const existingUser = await Client.findOne({ 
-      $or: [{ username }, { email }] 
-    });
-    
-    if (existingUser) {
-      // Use generic message to prevent enumeration
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Registration failed. Please check your information and try again.' 
-      });
-    }
-    
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-    
-    // Generate unique client ID
-    const clientId = `client_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    // Create new client
-    const client = await Client.create({
-      clientId,
-      username,
-      password: hashedPassword,
-      email,
-      name,
-      advisorId: advisorId || 'advisor_main',
-      isActive: true
-    });
-    
-    // Generate JWT token
-    const token = generateToken(client.clientId);
-    
-    // Remove password from response
-    const clientResponse = client.toObject();
-    delete clientResponse.password;
-    
-    // Set JWT in HttpOnly cookie
-    const isProduction = process.env.NODE_ENV === 'production';
-    res.cookie('session', token, {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-    });
-    
-    // Return response without token
-    res.json({ 
-      success: true, 
-      client: clientResponse,
-      message: 'Registration successful'
-    });
-  } catch (error) {
-    // Log error for server-side debugging
-    console.error('Registration error:', error);
-    
-    // Never expose error details or stack traces in response
-    const isProduction = process.env.NODE_ENV === 'production';
-    res.status(500).json({ 
-      success: false, 
-      error: 'Registration failed. Please try again.' 
-    });
-  }
-});
-
-// Forgot password route (with rate limiting)
-app.post('/api/auth/forgot-password', forgotPasswordLimiter, async (req, res) => {
-  try {
-    const { email } = req.body;
-    
-    // Input validation
-    if (!email) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Email is required' 
-      });
-    }
-    
-    // Find client by email
-    const client = await Client.findOne({ email });
-    
-    // Always return success message to prevent email enumeration
-    // In production, you would send a password reset email here
-    res.json({ 
-      success: true, 
-      message: 'If an account with that email exists, a password reset link has been sent.' 
-    });
-    
-    // TODO: In production, implement:
-    // 1. Generate secure password reset token
-    // 2. Store token with expiration in database
-    // 3. Send password reset email with link
-    // 4. Create /api/auth/reset-password endpoint to handle token validation and password update
-    
-  } catch (error) {
-    // Log error for server-side debugging
-    console.error('Forgot password error:', error);
-    
-    // Always return success message to prevent email enumeration
-    // Never expose error details or stack traces in response
-    res.json({ 
-      success: true, 
-      message: 'If an account with that email exists, a password reset link has been sent.' 
+    console.error('Get user error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get user information'
     });
   }
 });
@@ -475,16 +254,29 @@ app.get('/api/admin/clients', requireAuth, requireAdmin, async (req, res) => {
     // Audit log: admin action
     logAdminAction('view_all_clients', req.user.clientId, null, req.ip);
     
-    const clients = await Client.find({})
-      .select('clientId name email plaidAccessTokens isActive advisorId createdAt')
-      .sort({ name: 1 });
+    const clients = await Client.find({});
+    
+    // Remove sensitive access tokens from response
+    const safeClients = clients.map(client => {
+      const clientObj = client.toObject ? client.toObject() : client;
+      const { plaidAccessTokens, ...safeClient } = clientObj;
+      
+      // Return plaidAccessTokens without accessToken field
+      if (plaidAccessTokens && plaidAccessTokens.length > 0) {
+        safeClient.plaidAccessTokens = plaidAccessTokens.map(token => {
+          const { accessToken, ...safeToken } = token;
+          return safeToken; // Return token info without sensitive accessToken
+        });
+      } else {
+        safeClient.plaidAccessTokens = [];
+      }
+      
+      return safeClient;
+    });
     
     res.json({ 
       success: true, 
-      clients: clients.map(client => ({
-        ...client.toObject(),
-        plaidAccessTokens: client.plaidAccessTokens || []
-      }))
+      clients: safeClients
     });
   } catch (error) {
     console.error('Error fetching clients:', error);
@@ -1221,6 +1013,480 @@ app.post('/api/admin/capture-all-investment-snapshots', requireAuth, requireAdmi
 });
 
 // =============================================================================
+// SOCIAL SECURITY DATA ROUTES
+// =============================================================================
+
+const SocialSecurity = require('./models-supabase/SocialSecurity');
+const moment = require('moment');
+
+// Get Social Security data for a client (Admin only)
+app.get('/api/admin/clients/:clientId/social-security', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { clientId } = req.params;
+
+    const ssData = await SocialSecurity.findOne({ clientId });
+
+    if (!ssData) {
+      return res.json({ success: true, data: null });
+    }
+
+    res.json({ success: true, data: ssData });
+  } catch (error) {
+    console.error('Error fetching Social Security data:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Create or update Social Security data for a client (Admin only)
+app.post('/api/admin/clients/:clientId/social-security', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const ssData = req.body;
+
+    // Validate required fields
+    if (!ssData.dateOfBirth) {
+      return res.status(400).json({ success: false, error: 'Date of birth is required' });
+    }
+
+    // Calculate current age
+    const currentAge = moment().diff(moment(ssData.dateOfBirth), 'years');
+
+    // Calculate present value if we have benefit and start age
+    if (ssData.estimatedMonthlyBenefit && ssData.estimatedSsaStartAge) {
+      const lifeExpectancy = 90; // Default life expectancy
+      const discountRate = 0.03; // Default 3% discount rate
+      const inflationRate = 0.025; // Default 2.5% COLA
+
+      // Calculate PV with COLA inflation adjustment
+      ssData.presentValueOfBenefits = SocialSecurity.calculatePresentValue(
+        parseFloat(ssData.estimatedMonthlyBenefit),
+        parseInt(ssData.estimatedSsaStartAge),
+        currentAge,
+        lifeExpectancy,
+        discountRate,
+        inflationRate
+      );
+
+      console.log(`💰 Calculated Social Security PV: $${ssData.presentValueOfBenefits.toLocaleString()} (with ${(inflationRate * 100)}% COLA)`);
+    }
+
+    // Upsert Social Security data
+    const result = await SocialSecurity.findOneAndUpdate(
+      { clientId },
+      { ...ssData, clientId },
+      { upsert: true, new: true }
+    );
+
+    console.log(`✅ Social Security data saved for client ${clientId}`);
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Error saving Social Security data:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Update specific fields of Social Security data (Admin only)
+app.put('/api/admin/clients/:clientId/social-security/:ssId', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const updateData = req.body;
+
+    // Get existing data to calculate age
+    const existing = await SocialSecurity.findOne({ clientId });
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Social Security data not found' });
+    }
+
+    // Recalculate present value if benefit or start age changed
+    if (updateData.estimatedMonthlyBenefit !== undefined || updateData.estimatedSsaStartAge !== undefined) {
+      const dateOfBirth = updateData.dateOfBirth || existing.dateOfBirth;
+      const currentAge = moment().diff(moment(dateOfBirth), 'years');
+      const benefit = updateData.estimatedMonthlyBenefit || existing.estimatedMonthlyBenefit;
+      const startAge = updateData.estimatedSsaStartAge || existing.estimatedSsaStartAge;
+
+      if (benefit && startAge) {
+        // Use improved formula with COLA
+        updateData.presentValueOfBenefits = SocialSecurity.calculatePresentValue(
+          parseFloat(benefit),
+          parseInt(startAge),
+          currentAge,
+          90,
+          0.03,
+          0.025 // 2.5% COLA
+        );
+
+        console.log(`💰 Recalculated Social Security PV: $${updateData.presentValueOfBenefits.toLocaleString()} (with 2.5% COLA)`);
+      }
+    }
+
+    const result = await SocialSecurity.findOneAndUpdate(
+      { clientId },
+      updateData,
+      { new: true }
+    );
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Error updating Social Security data:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Upload SSA statement (Admin only)
+app.post('/api/admin/clients/:clientId/social-security/upload-statement', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const { filePath } = req.body;
+
+    if (!filePath) {
+      return res.status(400).json({ success: false, error: 'File path is required' });
+    }
+
+    // Update statement upload path
+    const result = await SocialSecurity.findOneAndUpdate(
+      { clientId },
+      { statementUploadPath: filePath, lastUpdated: new Date().toISOString().split('T')[0] },
+      { upsert: true, new: true }
+    );
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Error uploading SSA statement:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get optimal claiming age analysis (Admin only)
+app.get('/api/admin/clients/:clientId/social-security/optimal-age', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const {
+      lifeExpectancy = 90,
+      discountRate = 0.03,
+      inflationRate = 0.025 // 2.5% COLA
+    } = req.query;
+
+    const ssData = await SocialSecurity.findOne({ clientId });
+
+    if (!ssData) {
+      return res.status(404).json({ success: false, error: 'Social Security data not found' });
+    }
+
+    if (!ssData.benefitAt62 || !ssData.benefitAtFra || !ssData.benefitAt70) {
+      return res.status(400).json({
+        success: false,
+        error: 'Benefit estimates at ages 62, FRA, and 70 are required'
+      });
+    }
+
+    const currentAge = moment().diff(moment(ssData.dateOfBirth), 'years');
+
+    const analysis = SocialSecurity.calculateOptimalClaimingAge(
+      {
+        benefit_at_62: ssData.benefitAt62,
+        benefit_at_fra: ssData.benefitAtFra,
+        benefit_at_70: ssData.benefitAt70,
+        full_retirement_age: ssData.fullRetirementAge
+      },
+      currentAge,
+      parseFloat(lifeExpectancy),
+      parseFloat(discountRate),
+      parseFloat(inflationRate)
+    );
+
+    res.json({ success: true, data: analysis });
+  } catch (error) {
+    console.error('Error calculating optimal claiming age:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// =============================================================================
+// CHART DATA ROUTES
+// =============================================================================
+
+const chartDataService = require('./services/chartDataService');
+
+// Get expenses by category chart data (Admin only)
+app.get('/api/admin/clients/:clientId/chart-data/expenses-by-category', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const { months = 12 } = req.query;
+
+    const data = await chartDataService.getExpensesByCategoryChart(clientId, parseInt(months));
+
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Chart data error (expenses by category):', error);
+    res.status(500).json({ success: false, error: 'Failed to generate chart data' });
+  }
+});
+
+// Get income vs expenses chart data (Admin only)
+app.get('/api/admin/clients/:clientId/chart-data/income-vs-expenses', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const { months = 12 } = req.query;
+
+    const data = await chartDataService.getIncomeVsExpensesChart(clientId, parseInt(months));
+
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Chart data error (income vs expenses):', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get expense breakdown chart data (Admin only)
+app.get('/api/admin/clients/:clientId/chart-data/expense-breakdown', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const { startDate, endDate } = req.query;
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        success: false,
+        error: 'Start date and end date are required'
+      });
+    }
+
+    const data = await chartDataService.getExpenseBreakdownChart(clientId, startDate, endDate);
+
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Chart data error (expense breakdown):', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get net worth history chart data (Admin only)
+app.get('/api/admin/clients/:clientId/chart-data/net-worth-history', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const { months = 24, includeSocialSecurity = 'false' } = req.query;
+
+    const data = await chartDataService.getNetWorthHistoryChart(
+      clientId,
+      parseInt(months),
+      includeSocialSecurity === 'true'
+    );
+
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Chart data error (net worth history):', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// =============================================================================
+// PDF REPORT GENERATION ROUTES
+// =============================================================================
+
+const { ReportGenerator } = require('./services/pdfGenerator');
+const pdfStorageService = require('./services/pdfStorageService');
+
+// Generate PDF Report (Admin only)
+app.post('/api/admin/clients/:clientId/generate-report', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const { reportType, params, emailToClient = false } = req.body;
+
+    // Validate report type
+    const validTypes = ['monthly_cash_flow', 'net_worth', 'annual_summary', 'retirement_projection'];
+    if (!validTypes.includes(reportType)) {
+      return res.status(400).json({ success: false, error: 'Invalid report type' });
+    }
+
+    // Fetch client data
+    const Client = require('./models-supabase/Client');
+    const client = await Client.findOne({ clientId });
+    if (!client) {
+      return res.status(404).json({ success: false, error: 'Client not found' });
+    }
+
+    console.log(`📄 Generating ${reportType} report for client ${client.name}...`);
+    const startTime = Date.now();
+
+    // Generate PDF
+    const generator = new ReportGenerator(client, reportType, params);
+    const pdfBuffer = await generator.generate();
+
+    // Determine report date for storage
+    const reportDate = params.month || params.year || moment().format('YYYY-MM');
+
+    // Upload to Supabase Storage
+    const { filePath, filename } = await pdfStorageService.uploadPDF(
+      pdfBuffer,
+      clientId,
+      reportType,
+      reportDate
+    );
+
+    // Create document record in database
+    const { getDatabase } = require('./database-supabase');
+    const supabase = getDatabase();
+
+    const { data: document, error: dbError } = await supabase
+      .from('documents')
+      .insert({
+        client_id: clientId,
+        filename: filename,
+        file_path: filePath,
+        file_type: 'pdf',
+        file_size: pdfBuffer.length,
+        document_category: 'generated',
+        report_type: reportType,
+        report_period_start: params.startDate || reportDate,
+        report_period_end: params.endDate || reportDate,
+        generation_params: params,
+        status: 'approved' // Auto-approved since system generated
+      })
+      .select()
+      .single();
+
+    if (dbError) {
+      console.error('Error creating document record:', dbError);
+      throw dbError;
+    }
+
+    const generationTime = Date.now() - startTime;
+
+    // Get download URL (24 hour expiry for email)
+    const downloadUrl = await pdfStorageService.getSignedURL(filePath, 86400);
+
+    // Optional: Email to client
+    if (emailToClient) {
+      const emailService = require('./services/emailService');
+      try {
+        await emailService.sendReportEmail(
+          client.name,
+          client.email,
+          reportType,
+          downloadUrl,
+          24
+        );
+        console.log(`📧 Report emailed to ${client.email}`);
+      } catch (emailError) {
+        console.error('Error sending email:', emailError);
+        // Don't fail the request if email fails
+      }
+    }
+
+    console.log(`✅ Generated ${reportType} report for ${client.name} in ${generationTime}ms`);
+
+    res.json({
+      success: true,
+      documentId: document.id,
+      downloadUrl,
+      generationTime,
+      message: `Report generated successfully${emailToClient ? ' and emailed to client' : ''}`
+    });
+
+  } catch (error) {
+    console.error('❌ Report generation error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Download Report (Admin only)
+app.get('/api/admin/reports/:documentId/download', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { documentId } = req.params;
+
+    const { getDatabase } = require('./database-supabase');
+    const supabase = getDatabase();
+
+    const { data: document, error } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('id', documentId)
+      .eq('document_category', 'generated')
+      .single();
+
+    if (error || !document) {
+      return res.status(404).json({ success: false, error: 'Report not found' });
+    }
+
+    const signedUrl = await pdfStorageService.getSignedURL(document.file_path, 3600);
+
+    res.json({ success: true, downloadUrl: signedUrl });
+
+  } catch (error) {
+    console.error('Error getting report download:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// List Client Reports (Client or Admin)
+app.get('/api/clients/:clientId/reports', requireAuth, ensureClientOwnership, async (req, res) => {
+  try {
+    const clientId = req.user.clientId; // From JWT, not URL
+    const { reportType, limit = 50 } = req.query;
+
+    const { getDatabase } = require('./database-supabase');
+    const supabase = getDatabase();
+
+    let query = supabase
+      .from('documents')
+      .select('*')
+      .eq('client_id', clientId)
+      .eq('document_category', 'generated')
+      .order('created_at', { ascending: false })
+      .limit(parseInt(limit));
+
+    if (reportType) {
+      query = query.eq('report_type', reportType);
+    }
+
+    const { data: reports, error } = await query;
+
+    if (error) throw error;
+
+    res.json({ success: true, reports, count: reports.length });
+
+  } catch (error) {
+    console.error('Error fetching reports:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Delete Report (Admin only)
+app.delete('/api/admin/reports/:documentId', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { documentId } = req.params;
+
+    const { getDatabase } = require('./database-supabase');
+    const supabase = getDatabase();
+
+    // Get file path before deleting
+    const { data: document } = await supabase
+      .from('documents')
+      .select('file_path')
+      .eq('id', documentId)
+      .eq('document_category', 'generated')
+      .single();
+
+    if (document && document.file_path) {
+      // Delete from storage
+      await pdfStorageService.deletePDF(document.file_path);
+    }
+
+    // Delete from database
+    await supabase
+      .from('documents')
+      .delete()
+      .eq('id', documentId);
+
+    res.json({ success: true, message: 'Report deleted' });
+
+  } catch (error) {
+    console.error('Error deleting report:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// =============================================================================
 // EXISTING ROUTES (maintained for compatibility)
 // =============================================================================
 
@@ -1246,6 +1512,335 @@ app.put('/api/clients/:clientId/profile', requireAuth, ensureClientOwnership, as
     res.status(500).json({ error: error.message });
   }
 });
+
+// =============================================================================
+// DOCUMENT UPLOAD & OCR ROUTES
+// =============================================================================
+
+// Create document record after file upload to Supabase Storage
+app.post('/api/clients/:clientId/upload-statement', requireAuth, ensureClientOwnership, async (req, res) => {
+  try {
+    const clientId = req.user.clientId;
+    const { filename, filePath, fileType, fileSize, accountType, statementDate, notes } = req.body;
+
+    // Validate required fields
+    if (!filename || !filePath || !fileType || !fileSize || !accountType || !statementDate) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Create document record in Supabase
+    const { data, error } = await supabase
+      .from('documents')
+      .insert({
+        client_id: clientId,
+        filename,
+        file_path: filePath,
+        file_type: fileType,
+        file_size: fileSize,
+        account_type: accountType,
+        statement_date: statementDate,
+        notes,
+        status: 'pending'
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating document record:', error);
+      return res.status(500).json({ error: 'Failed to create document record' });
+    }
+
+    logSecurityEvent('document_uploaded', clientId, req.ip, {
+      documentId: data.id,
+      filename,
+      accountType
+    });
+
+    res.json({
+      success: true,
+      document: data
+    });
+  } catch (error) {
+    console.error('Upload statement error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all statements for a client
+app.get('/api/clients/:clientId/statements', requireAuth, ensureClientOwnership, async (req, res) => {
+  try {
+    const clientId = req.user.clientId;
+
+    // Get documents from Supabase
+    const { data, error } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('client_id', clientId)
+      .order('upload_date', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching documents:', error);
+      return res.status(500).json({ error: 'Failed to fetch documents' });
+    }
+
+    res.json({
+      success: true,
+      documents: data || []
+    });
+  } catch (error) {
+    console.error('Get statements error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Process OCR for a document (Admin only)
+app.post('/api/admin/statements/:documentId/process-ocr', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { documentId } = req.params;
+
+    // Get document from Supabase
+    const { data: document, error: fetchError } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('id', documentId)
+      .single();
+
+    if (fetchError || !document) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    // Update status to processing
+    const { error: updateError } = await supabase
+      .from('documents')
+      .update({ status: 'processing' })
+      .eq('id', documentId);
+
+    if (updateError) {
+      console.error('Error updating document status:', updateError);
+      return res.status(500).json({ error: 'Failed to update document status' });
+    }
+
+    // TODO: Call Python OCR script here
+    // For now, we'll simulate OCR processing
+    // In production, you would call your Python script like this:
+    /*
+    const { spawn } = require('child_process');
+    const pythonProcess = spawn('python3', ['scripts/ocr_processor.py', document.file_path]);
+
+    let ocrDataBuffer = '';
+    pythonProcess.stdout.on('data', (data) => {
+      ocrDataBuffer += data.toString();
+    });
+
+    pythonProcess.on('close', async (code) => {
+      if (code === 0) {
+        const ocrData = JSON.parse(ocrDataBuffer);
+        // Update document with OCR data
+        await supabase
+          .from('documents')
+          .update({
+            ocr_data: ocrData,
+            status: 'processed',
+            processed_at: new Date().toISOString(),
+            processed_by: req.user.clientId
+          })
+          .eq('id', documentId);
+      }
+    });
+    */
+
+    logSecurityEvent('ocr_processing_started', req.user.clientId, req.ip, {
+      documentId,
+      filename: document.filename
+    });
+
+    res.json({
+      success: true,
+      message: 'OCR processing started',
+      documentId
+    });
+  } catch (error) {
+    console.error('Process OCR error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update OCR data for a document (Admin only - for manual corrections)
+app.put('/api/admin/statements/:documentId/ocr-data', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const { ocrData } = req.body;
+
+    if (!ocrData) {
+      return res.status(400).json({ error: 'OCR data is required' });
+    }
+
+    // Update document with new OCR data
+    const { data, error } = await supabase
+      .from('documents')
+      .update({
+        ocr_data: ocrData,
+        processed_at: new Date().toISOString(),
+        processed_by: req.user.clientId
+      })
+      .eq('id', documentId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating OCR data:', error);
+      return res.status(500).json({ error: 'Failed to update OCR data' });
+    }
+
+    logSecurityEvent('ocr_data_updated', req.user.clientId, req.ip, {
+      documentId
+    });
+
+    res.json({
+      success: true,
+      document: data
+    });
+  } catch (error) {
+    console.error('Update OCR data error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Approve and import OCR data into balance sheets (Admin only)
+app.post('/api/admin/statements/:documentId/approve', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { documentId } = req.params;
+
+    // Get document with OCR data
+    const { data: document, error: fetchError } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('id', documentId)
+      .single();
+
+    if (fetchError || !document) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    if (!document.ocr_data) {
+      return res.status(400).json({ error: 'No OCR data available for this document' });
+    }
+
+    // Extract account data from OCR
+    const ocrData = document.ocr_data;
+    const balanceSheetEntries = [];
+
+    // Process each account found in OCR data
+    if (ocrData.accounts && Array.isArray(ocrData.accounts)) {
+      for (const account of ocrData.accounts) {
+        const balanceSheet = {
+          clientId: document.client_id,
+          date: account.asOfDate || document.statement_date,
+          accountName: account.accountName,
+          accountNumber: account.accountNumber,
+          accountType: account.accountType,
+          balance: account.balance,
+          currency: account.currency || 'USD',
+          source: 'document_upload',
+          metadata: {
+            documentId: document.id,
+            filename: document.filename,
+            extractedDate: ocrData.extractedDate,
+            confidence: ocrData.confidence
+          }
+        };
+
+        // Insert into balance_sheets collection
+        const { data: inserted, error: insertError } = await supabase
+          .from('balance_sheets')
+          .insert(balanceSheet)
+          .select()
+          .single();
+
+        if (!insertError && inserted) {
+          balanceSheetEntries.push(inserted);
+        }
+      }
+    }
+
+    // Update document status to approved
+    const { error: updateError } = await supabase
+      .from('documents')
+      .update({
+        status: 'approved',
+        processed_at: new Date().toISOString(),
+        processed_by: req.user.clientId
+      })
+      .eq('id', documentId);
+
+    if (updateError) {
+      console.error('Error updating document status:', updateError);
+      return res.status(500).json({ error: 'Failed to update document status' });
+    }
+
+    logSecurityEvent('document_approved', req.user.clientId, req.ip, {
+      documentId,
+      balanceSheetEntriesCreated: balanceSheetEntries.length
+    });
+
+    res.json({
+      success: true,
+      message: 'Document approved and data imported',
+      balanceSheetEntries
+    });
+  } catch (error) {
+    console.error('Approve document error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Reject a document (Admin only)
+app.post('/api/admin/statements/:documentId/reject', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const { reason } = req.body;
+
+    if (!reason) {
+      return res.status(400).json({ error: 'Rejection reason is required' });
+    }
+
+    // Update document status to rejected
+    const { data, error } = await supabase
+      .from('documents')
+      .update({
+        status: 'rejected',
+        rejected_reason: reason,
+        processed_at: new Date().toISOString(),
+        processed_by: req.user.clientId
+      })
+      .eq('id', documentId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error rejecting document:', error);
+      return res.status(500).json({ error: 'Failed to reject document' });
+    }
+
+    logSecurityEvent('document_rejected', req.user.clientId, req.ip, {
+      documentId,
+      reason
+    });
+
+    res.json({
+      success: true,
+      message: 'Document rejected',
+      document: data
+    });
+  } catch (error) {
+    console.error('Reject document error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// =============================================================================
+// PLAID ROUTES
+// =============================================================================
 
 // Plaid routes
 app.post('/api/create_link_token', requireAuth, plaidLimiter, async (req, res) => {
@@ -1323,13 +1918,13 @@ app.post('/api/exchange_public_token', requireAuth, plaidLimiter, async (req, re
     console.log(`   Item ID: ${itemId}`);
     console.log(`   Accounts: ${accountIds.length} accounts connected`);
     
+    // NEVER expose access_token in API response - it's sensitive!
     res.json({ 
       success: true,
       item_id: itemId,
       institution_name: institutionName,
       institution_id: institutionId,
       account_ids: accountIds,
-      access_token: accessToken,
       message: 'Bank account connected successfully'
     });
   } catch (error) {
@@ -1485,7 +2080,7 @@ app.get('/api/test_plaid', async (req, res) => {
       message: 'Plaid connection working',
       link_token_created: true,
       environment: process.env.PLAID_ENV,
-      database_status: 'connected (SQLite)'
+      database_status: 'connected (Supabase/PostgreSQL)'
     });
   } catch (error) {
     res.status(500).json({
@@ -2066,8 +2661,10 @@ app.listen(PORT, () => {
   console.log(`🔧 Environment: ${process.env.PLAID_ENV || 'sandbox'}`);
   console.log(`🔑 Plaid Client ID: ${process.env.PLAID_CLIENT_ID ? '✅ Found' : '❌ Missing'}`);
   console.log(`🔐 Plaid Secret: ${process.env.PLAID_SECRET ? '✅ Found' : '❌ Missing'}`);
-  console.log(`💾 Database: ✅ SQLite (plaid-financial-system.db)`);
-  
+  console.log(`💾 Database: ✅ Supabase/PostgreSQL`);
+  console.log(`🔗 Supabase URL: ${process.env.SUPABASE_URL ? '✅ Found' : '❌ Missing'}`);
+  console.log(`🔑 Supabase Key: ${process.env.SUPABASE_SERVICE_ROLE_KEY ? '✅ Found' : '❌ Missing'}`);
+
   // Log available models
   console.log(`📊 Transaction Model: ${Transaction ? '✅ Available' : '⚠️  Not available - using legacy mode'}`);
   console.log(`📈 MonthlySummary Model: ${MonthlySummary ? '✅ Available' : '❌ Missing'}`);

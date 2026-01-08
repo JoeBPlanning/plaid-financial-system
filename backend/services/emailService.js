@@ -353,7 +353,200 @@ function getEmailServiceStatus() {
   };
 }
 
+/**
+ * Send report email with download link
+ * Uses the same provider selection logic as invite emails
+ */
+async function sendReportEmail(clientName, email, reportType, reportUrl, expiryHours = 24) {
+  const reportTypeNames = {
+    'monthly_cash_flow': 'Monthly Cash Flow Report',
+    'net_worth': 'Net Worth Statement',
+    'annual_summary': 'Annual Summary Report',
+    'retirement_projection': 'Retirement Projection Report'
+  };
+
+  const reportName = reportTypeNames[reportType] || 'Financial Report';
+  const companyName = process.env.COMPANY_NAME || 'Bautista Planning and Analytics';
+  const fromEmail = process.env.SENDGRID_FROM_EMAIL || process.env.SMTP_FROM || 'noreply@example.com';
+
+  const emailHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          line-height: 1.6;
+          color: #333;
+          max-width: 600px;
+          margin: 0 auto;
+          padding: 20px;
+        }
+        .header {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          padding: 20px;
+          text-align: center;
+          border-radius: 5px 5px 0 0;
+        }
+        .content {
+          background-color: #f7fafc;
+          padding: 30px;
+          border: 1px solid #e2e8f0;
+          border-top: none;
+          border-radius: 0 0 5px 5px;
+        }
+        .button {
+          display: inline-block;
+          background-color: #667eea;
+          color: white;
+          padding: 12px 30px;
+          text-decoration: none;
+          border-radius: 5px;
+          margin: 20px 0;
+          font-weight: bold;
+        }
+        .alert {
+          background-color: #fff3cd;
+          border: 1px solid #ffc107;
+          padding: 15px;
+          border-radius: 5px;
+          margin: 20px 0;
+        }
+        .footer {
+          text-align: center;
+          color: #718096;
+          font-size: 12px;
+          margin-top: 30px;
+          padding-top: 20px;
+          border-top: 1px solid #e2e8f0;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>Your ${reportName} is Ready</h1>
+        <p>${companyName}</p>
+      </div>
+
+      <div class="content">
+        <p>Hi ${clientName},</p>
+
+        <p>Your <strong>${reportName}</strong> has been generated and is ready for download.</p>
+
+        <p style="text-align: center;">
+          <a href="${reportUrl}" class="button">Download Report</a>
+        </p>
+
+        <div class="alert">
+          <strong>Important:</strong> This download link will expire in ${expiryHours} hours for security purposes.
+        </div>
+
+        <p>This report provides valuable insights into your financial situation. If you have any questions about the information in your report, please don't hesitate to reach out.</p>
+
+        <p>Best regards,<br>
+        ${companyName}</p>
+      </div>
+
+      <div class="footer">
+        <p>${companyName}<br>
+        This is an automated message. Please do not reply to this email.</p>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const emailText = `
+Hi ${clientName},
+
+Your ${reportName} has been generated and is ready for download.
+
+Download your report here: ${reportUrl}
+
+Important: This download link will expire in ${expiryHours} hours for security purposes.
+
+This report provides valuable insights into your financial situation. If you have any questions about the information in your report, please don't hesitate to reach out.
+
+Best regards,
+${companyName}
+
+---
+${companyName}
+This is an automated message. Please do not reply to this email.
+  `;
+
+  try {
+    // Try providers in order of preference
+    if (process.env.SENDGRID_API_KEY) {
+      const sgMail = require('@sendgrid/mail');
+      sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+
+      const msg = {
+        to: email,
+        from: fromEmail,
+        subject: `Your ${reportName} is Ready`,
+        text: emailText,
+        html: emailHtml
+      };
+
+      await sgMail.send(msg);
+      console.log(`✉️  Report email sent to ${email} via SendGrid`);
+      return { success: true, provider: 'sendgrid' };
+
+    } else if (process.env.RESEND_API_KEY) {
+      const { Resend } = require('resend');
+      const resend = new Resend(process.env.RESEND_API_KEY);
+
+      await resend.emails.send({
+        from: fromEmail,
+        to: email,
+        subject: `Your ${reportName} is Ready`,
+        html: emailHtml
+      });
+
+      console.log(`✉️  Report email sent to ${email} via Resend`);
+      return { success: true, provider: 'resend' };
+
+    } else if (process.env.SMTP_HOST) {
+      const nodemailer = require('nodemailer');
+
+      const transporter = nodemailer.createTransporter({
+        host: process.env.SMTP_HOST,
+        port: process.env.SMTP_PORT || 587,
+        secure: process.env.SMTP_SECURE === 'true',
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS
+        }
+      });
+
+      const info = await transporter.sendMail({
+        from: fromEmail,
+        to: email,
+        subject: `Your ${reportName} is Ready`,
+        text: emailText,
+        html: emailHtml
+      });
+
+      console.log(`✉️  Report email sent to ${email} via SMTP: ${info.messageId}`);
+      return { success: true, provider: 'smtp', messageId: info.messageId };
+
+    } else {
+      console.warn('⚠️  No email provider configured for report email');
+      return {
+        success: false,
+        provider: 'none',
+        message: 'No email provider configured'
+      };
+    }
+  } catch (error) {
+    console.error('Error sending report email:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   sendInviteEmail,
+  sendReportEmail,
   getEmailServiceStatus
 };

@@ -1,4 +1,5 @@
 const { getDatabase } = require('../database-supabase');
+const { encryptPlaidToken, decryptPlaidToken } = require('../utils/encryption');
 
 class Client {
   static async findOne(query) {
@@ -90,11 +91,11 @@ class Client {
 
     if (clientError) throw clientError;
 
-    // Insert plaid tokens if provided
+    // Insert plaid tokens if provided (encrypt access tokens)
     if (plaidAccessTokens && plaidAccessTokens.length > 0) {
       const tokens = plaidAccessTokens.map(token => ({
         client_id: client.client_id,
-        access_token: token.accessToken,
+        access_token: encryptPlaidToken(token.accessToken), // Encrypt before storing
         item_id: token.itemId,
         institution_name: token.institutionName,
         institution_id: token.institutionId,
@@ -143,11 +144,11 @@ class Client {
         .delete()
         .eq('client_id', clientId);
 
-      // Insert new tokens
+      // Insert new tokens (encrypt access tokens)
       if (plaidAccessTokens.length > 0) {
         const tokens = plaidAccessTokens.map(token => ({
           client_id: clientId,
-          access_token: token.accessToken,
+          access_token: encryptPlaidToken(token.accessToken), // Encrypt before storing
           item_id: token.itemId,
           institution_name: token.institutionName,
           institution_id: token.institutionId,
@@ -174,7 +175,7 @@ class Client {
       .from('plaid_connections')
       .insert([{
         client_id: clientId,
-        access_token: tokenData.accessToken,
+        access_token: encryptPlaidToken(tokenData.accessToken), // Encrypt before storing
         item_id: tokenData.itemId,
         institution_name: tokenData.institutionName,
         institution_id: tokenData.institutionId,
@@ -223,7 +224,7 @@ class Client {
     if (!data) return null;
 
     const plaidAccessTokens = (data.plaid_connections || []).map(conn => ({
-      accessToken: conn.access_token,
+      accessToken: decryptPlaidToken(conn.access_token), // Decrypt when reading
       itemId: conn.item_id,
       institutionName: conn.institution_name,
       institutionId: conn.institution_id,

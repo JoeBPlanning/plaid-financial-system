@@ -1,127 +1,70 @@
-const jwt = require('jsonwebtoken');
-const Client = require('../models-sqlite/Client');
+const { createClient } = require('@supabase/supabase-js');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+// Initialize Supabase client with service role key for backend
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.error('⚠️  Missing Supabase environment variables!');
+  console.error('Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your .env file');
+}
+
+const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
+  }
+});
 
 /**
- * Middleware to verify JWT token and attach clientId to req.user
- * Reads JWT from HttpOnly cookie named 'session'
+ * Middleware to verify Supabase JWT token and attach user info to req.user
+ * Reads JWT from Authorization header: "Bearer <token>"
  * Returns 401 if missing or invalid
  */
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   try {
-    // Read token from HttpOnly cookie
-    const token = req.cookies?.session;
+    // Get token from Authorization header
+    const authHeader = req.headers.authorization;
 
-    if (!token) {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Authentication required' 
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required'
       });
     }
 
-    // Verify JWT signature
-    const decoded = jwt.verify(token, JWT_SECRET);
-    
-    // Verify payload contains clientId
-    if (!decoded.clientId) {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Invalid token payload' 
+    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+
+    // Verify JWT with Supabase
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+
+    if (error || !user) {
+      console.error('Auth verification error:', error?.message);
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid or expired token'
       });
     }
 
-    // Attach clientId to req.user
-    req.user = { clientId: decoded.clientId };
-    
+    // Attach user info to req.user
+    // Use Supabase user ID as clientId for consistency
+    req.user = {
+      clientId: user.id,
+      email: user.email,
+      name: user.user_metadata?.name || user.email,
+      role: user.user_metadata?.role || 'user'
+    };
+
     next();
   } catch (error) {
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Invalid token' 
-      });
-    }
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Token expired' 
-      });
-    }
-    
     console.error('Auth middleware error:', error);
-    return res.status(401).json({ 
-      success: false, 
-      error: 'Authentication failed' 
+    return res.status(401).json({
+      success: false,
+      error: 'Authentication failed'
     });
   }
 }
 
-/**
- * Legacy middleware - kept for backward compatibility
- * @deprecated Use requireAuth instead
- */
-async function authenticateToken(req, res, next) {
-  try {
-    // Read token from HttpOnly cookie
-    const token = req.cookies?.session;
-
-    if (!token) {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Access token required' 
-      });
-    }
-
-    const decoded = jwt.verify(token, JWT_SECRET);
-    
-    // Verify client still exists and is active
-    const client = await Client.findOne({ clientId: decoded.clientId });
-    
-    if (!client || !client.isActive) {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Invalid or inactive client' 
-      });
-    }
-
-    // Attach client to request
-    req.client = client;
-    req.clientId = decoded.clientId;
-    
-    next();
-  } catch (error) {
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(403).json({ 
-        success: false, 
-        error: 'Invalid token' 
-      });
-    }
-    if (error.name === 'TokenExpiredError') {
-      return res.status(403).json({ 
-        success: false, 
-        error: 'Token expired' 
-      });
-    }
-    
-    console.error('Auth middleware error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Authentication error' 
-    });
-  }
-}
-
-/**
- * Generate JWT token for a client
- */
-function generateToken(clientId) {
-  return jwt.sign(
-    { clientId },
-    JWT_SECRET,
-    { expiresIn: '7d' } // Token expires in 7 days
-  );
-}
 
 /**
  * Middleware to ensure client can only access their own data
@@ -156,35 +99,23 @@ function ensureClientOwnership(req, res, next) {
 }
 
 /**
- * Middleware to require admin role
- * Requires requireAuth to be called first (req.user.clientId must exist)
- * Fetches client from database to check role
- * Returns 403 if user is not an admin
+ * Middleware to require admin or advisor role
+ * Requires requireAuth to be called first (req.user must exist with role)
+ * Returns 403 if user is not an admin or advisor
  */
 async function requireAdmin(req, res, next) {
   try {
     if (!req.user || !req.user.clientId) {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Authentication required' 
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required'
       });
     }
 
-    // Fetch client to check role
-    const client = await Client.findOne({ clientId: req.user.clientId });
-    
-    if (!client) {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Client not found' 
-      });
-    }
+    // Check if user has admin or advisor role
+    const userRole = req.user.role || 'user';
 
-    // Check if user has admin role
-    // Default to 'user' if role is not set
-    const userRole = client.role || 'user';
-    
-    if (userRole !== 'admin') {
+    if (userRole !== 'admin' && userRole !== 'advisor') {
       // Log security event: unauthorized admin access attempt
       const { logSecurityEvent } = require('./auditLogger');
       logSecurityEvent('unauthorized_admin_access_attempt', req.user.clientId, req.ip, {
@@ -192,32 +123,27 @@ async function requireAdmin(req, res, next) {
         method: req.method,
         userRole
       });
-      
-      return res.status(403).json({ 
-        success: false, 
-        error: 'Admin access required' 
+
+      return res.status(403).json({
+        success: false,
+        error: 'Admin or advisor access required'
       });
     }
 
-    // Attach role to req.user for use in route handlers
-    req.user.role = userRole;
-    
     next();
   } catch (error) {
     console.error('Admin check error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      error: 'Authorization check failed' 
+    return res.status(500).json({
+      success: false,
+      error: 'Authorization check failed'
     });
   }
 }
 
 module.exports = {
   requireAuth,
-  authenticateToken, // Legacy - kept for backward compatibility
-  generateToken,
   ensureClientOwnership,
   requireAdmin,
-  JWT_SECRET
+  supabase
 };
 

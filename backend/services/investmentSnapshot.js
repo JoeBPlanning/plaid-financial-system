@@ -1,7 +1,7 @@
 const moment = require('moment');
-const Client = require('../models-sqlite/Client');
-const Investment = require('../models-sqlite/Investment');
-const InvestmentSnapshot = require('../models-sqlite/InvestmentSnapshot');
+const Client = require('../models-supabase/Client');
+const Investment = require('../models-supabase/Investment');
+const InvestmentSnapshot = require('../models-supabase/InvestmentSnapshot');
 const investmentsSync = require('./investmentsSync');
 
 /**

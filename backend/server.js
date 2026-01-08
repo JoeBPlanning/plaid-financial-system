@@ -1017,7 +1017,6 @@ app.post('/api/admin/capture-all-investment-snapshots', requireAuth, requireAdmi
 // =============================================================================
 
 const SocialSecurity = require('./models-supabase/SocialSecurity');
-const moment = require('moment');
 
 // Get Social Security data for a client (Admin only)
 app.get('/api/admin/clients/:clientId/social-security', requireAuth, requireAdmin, async (req, res) => {

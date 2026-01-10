@@ -99,7 +99,7 @@ cd frontend
 npm install @supabase/supabase-js
 
 # Backend
-cd backend
+cd frontend
 npm install @supabase/supabase-js
 ```
 

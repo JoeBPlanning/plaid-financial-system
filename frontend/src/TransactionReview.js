@@ -1,0 +1,701 @@
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import config from './config';
+
+// Configure axios to use cookies for authentication
+const axiosInstance = axios.create({
+  baseURL: config.API_BASE,
+  withCredentials: true, // Include cookies in all requests
+});
+
+// Updated categories to match your schema exactly
+const EXPENSE_CATEGORIES = [
+  { value: 'housing', label: 'Housing' },
+  { value: 'billAndUtilities', label: 'Bills & Utilities' },
+  { value: 'autoAndTransport', label: 'Auto & Transport' },
+  { value: 'insurance', label: 'Insurance' },
+  { value: 'loanPayment', label: 'Loan Payment' },
+  { value: 'groceries', label: 'Groceries' },
+  { value: 'healthAndFitness', label: 'Health & Fitness' },
+  { value: 'shopping', label: 'Shopping' },
+  { value: 'diningOut', label: 'Dining Out' },
+  { value: 'entertainment', label: 'Entertainment' },
+  { value: 'travel', label: 'Travel' },
+  { value: 'charitableGiving', label: 'Charitable Giving' },
+  { value: 'business', label: 'Business' },
+  { value: 'kids', label: 'Kids' },
+  { value: 'education', label: 'Education' },
+  { value: 'gift', label: 'Gift' },
+  { value: 'feeAndCharges', label: 'Fees & Charges' },
+  { value: 'misc', label: 'Miscellaneous' },
+  { value: 'uncategorized', label: 'Uncategorized' },
+  { value: 'exclude', label: 'Exclude (Refunds/Chargebacks)' }
+];
+
+const INCOME_CATEGORIES = [
+  { value: 'salary', label: 'Salary/Wages' },
+  { value: 'freelance', label: 'Freelance/Contract' },
+  { value: 'business', label: 'Business Income' },
+  { value: 'investments', label: 'Investment Returns' },
+  { value: 'dividends', label: 'Dividends' },
+  { value: 'interest', label: 'Interest' },
+  { value: 'transfers', label: 'Transfers (Venmo/Family)' },
+  { value: 'refunds', label: 'Refunds' },
+  { value: 'other', label: 'Other Income' }
+];
+
+function TransactionReview({ client, onComplete }) {
+  const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [filter, setFilter] = useState('all'); // 'all', 'unreviewed', 'reviewed'
+  const [searchTerm, setSearchTerm] = useState('');
+
+  useEffect(() => {
+    loadTransactions();
+  }, [client, selectedMonth]);
+
+  const loadTransactions = async () => {
+    if (!client) return;
+    
+    setLoading(true);
+    try {
+      const response = await axiosInstance.get(
+        `/api/clients/${client.clientId}/transactions?month=${selectedMonth}`
+      );
+      setTransactions(response.data.transactions.map(t => ({
+        ...t,
+        finalCategory: t.userCategory || t.suggestedCategory,
+        // Ensure isReviewed is properly set based on whether userCategory exists
+        isReviewed: t.isReviewed !== undefined ? t.isReviewed : (t.userCategory ? true : false)
+      })));
+    } catch (error) {
+      console.error('Error loading transactions:', error);
+      alert('Failed to load transactions');
+    }
+    setLoading(false);
+  };
+
+  const updateTransactionCategory = (transactionId, category) => {
+    setTransactions(prev => prev.map(t => {
+      if (t._id === transactionId) {
+        return { 
+          ...t, 
+          finalCategory: category, 
+          userCategory: category, // Also update userCategory so it persists
+          isReviewed: true 
+        };
+      }
+      return t;
+    }));
+  };
+
+  const saveCategories = async () => {
+    setSaving(true);
+    try {
+      // Include ALL transactions, marking them as reviewed if they have a category
+      const updatedTransactions = transactions.map(t => ({
+        transactionId: t._id || t.plaidTransactionId, // Use plaidTransactionId as fallback
+        userCategory: t.finalCategory || t.userCategory || t.suggestedCategory, // Use finalCategory, existing userCategory, or suggestedCategory
+        isReviewed: true // Always mark as reviewed when saving (user has reviewed the transaction)
+      }));
+
+      const response = await axiosInstance.post(`/api/clients/${client.clientId}/update-transaction-categories`, {
+        transactions: updatedTransactions,
+        month: selectedMonth
+      });
+      
+      // Reload transactions to ensure we have the latest saved data
+      await loadTransactions();
+      
+      // Regenerate summary to reflect the updated categories
+      try {
+        await axiosInstance.post(`/api/process-transactions/${client.clientId}`, {
+          targetMonth: selectedMonth,
+          useUserCategories: true
+        });
+      } catch (summaryError) {
+        console.error('Error regenerating summary:', summaryError);
+        // Don't fail the save if summary regeneration fails
+      }
+      
+      alert('Categories saved successfully!');
+      if (onComplete) onComplete();
+    } catch (error) {
+      console.error('Error saving categories:', error);
+      alert('Failed to save categories');
+    }
+    setSaving(false);
+  };
+
+  const refreshTransactions = async () => {
+    if (!window.confirm('This will refresh all transactions with corrected income/expense categorization. Continue?')) {
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      const response = await axiosInstance.post(`/api/clients/${client.clientId}/refresh-transactions`, {
+        month: selectedMonth
+      });
+      
+      if (response.data.success) {
+        // Reload the transactions
+        await loadTransactions();
+        alert('Transactions refreshed with corrected categorization!');
+      } else {
+        alert(response.data.message || 'No valid bank connections found. Please connect a real bank account.');
+      }
+    } catch (error) {
+      console.error('Error refreshing transactions:', error);
+      alert('Failed to refresh transactions. Make sure you have a valid bank connection.');
+    }
+    setLoading(false);
+  };
+
+  const markAllAsReviewed = async () => {
+    // Update local state
+    setTransactions(prev => prev.map(t => ({ 
+      ...t, 
+      isReviewed: true,
+      userCategory: t.userCategory || t.finalCategory || t.suggestedCategory // Ensure category is set
+    })));
+    
+    // Save to database
+    try {
+      const updatedTransactions = transactions.map(t => ({
+        transactionId: t._id || t.plaidTransactionId,
+        userCategory: t.userCategory || t.finalCategory || t.suggestedCategory,
+        isReviewed: true
+      }));
+
+      await axiosInstance.post(`/api/clients/${client.clientId}/update-transaction-categories`, {
+        transactions: updatedTransactions,
+        month: selectedMonth
+      });
+      
+      // Reload to confirm
+      await loadTransactions();
+      alert('All transactions marked as reviewed!');
+    } catch (error) {
+      console.error('Error marking all as reviewed:', error);
+      alert('Failed to mark all as reviewed');
+    }
+  };
+
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD'
+    }).format(Math.abs(amount) || 0);
+  };
+
+  // Determine if transaction is a transfer (not income or expense)
+  // Transfers include: credit card payments, account transfers, CD deposits, etc.
+  const isTransactionTransfer = (transaction) => {
+    const name = (transaction.name || transaction.merchantName || '').toLowerCase();
+    const pfc = transaction.personalFinanceCategory;
+    
+    // Credit card payments are transfers (paying off debt, not a new expense)
+    if (name.includes('credit card') && name.includes('payment')) {
+      return true;
+    }
+    
+    // CD deposits are transfers (moving money between accounts)
+    // These are opening a CD account, not a purchase or income
+    if (name.includes('cd deposit') || name.includes('cd.deposit') || 
+        (name.includes('deposit') && name.includes('initial'))) {
+      return true;
+    }
+    
+    // Check Plaid's personal finance category for transfers
+    if (pfc && pfc.primary) {
+      const primary = pfc.primary.toLowerCase();
+      if (primary.includes('transfer_out') || primary.includes('transfer_in') ||
+          primary.includes('loan_payment')) {
+        return true;
+      }
+    }
+    
+    // Account transfers
+    if (name.includes('transfer') && (name.includes('account') || name.includes('between'))) {
+      return true;
+    }
+    
+    return false;
+  };
+
+  // Determine if transaction is income based on account type, Plaid categories, and merchant name
+  // According to Plaid: 
+  // - Credit accounts: positive = charge (expense), negative = payment (expense for cash flow)
+  // - Depository accounts: positive = credit/deposit (income), negative = debit/withdrawal (expense)
+  // - Loan accounts: positive = loan disbursement (income), negative = payment (expense)
+  // BUT: Plaid sometimes returns expenses as positive amounts, so we need to check categories too
+  const isTransactionIncome = (transaction) => {
+    // If it's a transfer, it's neither income nor expense
+    if (isTransactionTransfer(transaction)) {
+      return null; // Return null to indicate it's a transfer
+    }
+    const accountType = transaction.accountType;
+    const amount = transaction.amount;
+    const name = (transaction.name || transaction.merchantName || '').toLowerCase();
+    
+    // Check Plaid's personal finance category first (most reliable)
+    const pfc = transaction.personalFinanceCategory;
+    if (pfc && pfc.primary) {
+      const primary = pfc.primary.toLowerCase();
+      // Income categories
+      if (primary.includes('income') || primary.includes('salary') || 
+          primary.includes('wage') || primary.includes('dividend') ||
+          primary.includes('interest') || primary.includes('deposit')) {
+        return true;
+      }
+      // Transfer categories - these are neither income nor expense in traditional sense
+      // TRANSFER_OUT from checking = money leaving (expense for cash flow)
+      // TRANSFER_IN to checking = money coming in (income for cash flow)
+      if (primary.includes('transfer_out')) {
+        // Money leaving account = expense from cash flow perspective
+        return false;
+      }
+      if (primary.includes('transfer_in')) {
+        // Money coming into account = income from cash flow perspective
+        return true;
+      }
+      // Loan payments - paying off debt (expense for cash flow, but not a new expense)
+      if (primary.includes('loan_payment')) {
+        // From checking account perspective, this is money leaving = expense
+        // But it's paying off existing debt, not a new purchase
+        return false; // Treat as expense for cash flow, but could be excluded from spending analysis
+      }
+      // Expense categories - definitely not income
+      if (primary.includes('food') || primary.includes('restaurant') ||
+          primary.includes('dining') || primary.includes('groceries') ||
+          primary.includes('transport') || primary.includes('travel') ||
+          primary.includes('entertainment') || primary.includes('shopping') ||
+          primary.includes('general_merchandise') || primary.includes('gas_stations')) {
+        return false;
+      }
+    }
+    
+    // Check Plaid category array
+    const plaidCategory = transaction.plaidCategory || (transaction.category && transaction.category[0]) || '';
+    if (plaidCategory) {
+      const cat = plaidCategory.toLowerCase();
+      // Income categories
+      if (cat.includes('transfer') && name.includes('deposit')) {
+        return true;
+      }
+      // Expense categories
+      if (cat.includes('food') || cat.includes('restaurant') || cat.includes('dining') ||
+          cat.includes('gas') || cat.includes('transport') || cat.includes('travel') ||
+          cat.includes('entertainment') || cat.includes('shopping') || cat.includes('general')) {
+        return false;
+      }
+    }
+    
+    // Known expense merchants (even if positive amount from checking)
+    const expenseMerchants = [
+      'mcdonald', 'starbucks', 'kfc', 'burger', 'pizza', 'restaurant',
+      'uber', 'lyft', 'taxi', 'gas', 'shell', 'chevron', 'exxon',
+      'walmart', 'target', 'amazon', 'shop', 'store', 'market',
+      'hotel', 'airline', 'united', 'delta', 'american',
+      'netflix', 'spotify', 'subscription', 'payment', 'charge',
+      'purchase', 'bicycle', 'climbing', 'gym', 'fitness'
+    ];
+    
+    for (const merchant of expenseMerchants) {
+      if (name.includes(merchant)) {
+        return false; // Definitely an expense
+      }
+    }
+    
+    // Special case: Credit card payments from checking/savings accounts
+    // These are transfers/debt payments - money leaving the account
+    // Accounting perspective: Not a new expense (the expense was the original charge)
+    // Cash flow perspective: Money leaving = expense for cash flow tracking
+    // Plaid categorizes these as TRANSFER_OUT or LOAN_PAYMENTS
+    if (name.includes('credit card') && name.includes('payment')) {
+      // Credit card payments are always expenses from cash flow perspective
+      // (money leaving checking/savings to pay debt)
+      // Note: The actual spending expense was the original charge on the credit card
+      // This payment is just settling that debt, so it could be excluded from spending analysis
+      return false; // Expense for cash flow, but conceptually a transfer/debt payment
+    }
+    
+    // If accountType is not available, try to infer from transaction name
+    if (!accountType) {
+      // Common patterns for expenses that might show as positive
+      if (name.includes('payment') || name.includes('charge') || 
+          name.includes('purchase') || name.includes('withdrawal')) {
+        return false; // Likely an expense
+      }
+      // Common patterns for income
+      if (name.includes('deposit') || name.includes('salary') || 
+          name.includes('wage') || name.includes('payroll') ||
+          name.includes('interest') || name.includes('dividend')) {
+        return true; // Likely income
+      }
+      // Default fallback: positive = income, negative = expense
+      return amount > 0;
+    }
+    
+    if (accountType === 'credit') {
+      // Credit cards: ALL transactions are expenses (positive = charge, negative = payment)
+      return false;
+    } else if (accountType === 'depository') {
+      // Checking/savings: 
+      // - Negative amounts are always expenses
+      // - Positive amounts are usually income, BUT check merchant/category first
+      if (amount < 0) {
+        return false; // Negative = expense
+      }
+      
+      // For positive amounts from checking, check if it's a known expense merchant
+      // or has expense categories (could be a refund or data structure issue)
+      const hasExpenseIndicator = expenseMerchants.some(m => name.includes(m)) ||
+                                  (pfc && pfc.primary && (
+                                    pfc.primary.toLowerCase().includes('food') ||
+                                    pfc.primary.toLowerCase().includes('restaurant') ||
+                                    pfc.primary.toLowerCase().includes('dining') ||
+                                    pfc.primary.toLowerCase().includes('payment') ||
+                                    pfc.primary.toLowerCase().includes('transfer_out')
+                                  ));
+      
+      if (hasExpenseIndicator) {
+        return false; // Positive amount but expense merchant/category = expense
+      }
+      
+      // Positive amounts without expense indicators = likely income
+      return true;
+    } else if (accountType === 'loan') {
+      // Loans: positive = loan received (income), negative = payment (expense)
+      return amount > 0;
+    } else {
+      // Default: positive = income, negative = expense
+      return amount > 0;
+    }
+  };
+
+  // Filter transactions based on current filter and search
+  const filteredTransactions = transactions.filter(transaction => {
+    const matchesFilter = filter === 'all' || 
+      (filter === 'unreviewed' && !transaction.isReviewed) ||
+      (filter === 'reviewed' && transaction.isReviewed);
+    
+    const matchesSearch = searchTerm === '' || 
+      (transaction.name && transaction.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (transaction.merchantName && transaction.merchantName.toLowerCase().includes(searchTerm.toLowerCase()));
+    
+    return matchesFilter && matchesSearch;
+  });
+
+  const unreviewedCount = transactions.filter(t => !t.isReviewed).length;
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px' }}>
+        <p>Loading transactions...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px' }}>
+      <div style={{ 
+        background: 'white', 
+        borderRadius: '12px', 
+        padding: '30px',
+        boxShadow: '0 10px 30px rgba(0, 0, 0, 0.1)'
+      }}>
+        <h2 style={{ margin: '0 0 30px 0', color: '#333' }}>
+          Review & Categorize Transactions
+        </h2>
+        
+        {/* Controls */}
+        <div style={{ 
+          display: 'flex', 
+          gap: '20px', 
+          marginBottom: '30px', 
+          flexWrap: 'wrap',
+          alignItems: 'center'
+        }}>
+          <div>
+            <label>Month: </label>
+            <input
+              type="month"
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
+            />
+          </div>
+          
+          <div>
+            <label>Filter: </label>
+            <select 
+              value={filter} 
+              onChange={(e) => setFilter(e.target.value)}
+              style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
+            >
+              <option value="all">All Transactions ({transactions.length})</option>
+              <option value="unreviewed">Unreviewed ({unreviewedCount})</option>
+              <option value="reviewed">Reviewed ({transactions.length - unreviewedCount})</option>
+            </select>
+          </div>
+          
+          <div>
+            <label>Search: </label>
+            <input
+              type="text"
+              placeholder="Search by merchant or description..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              style={{ 
+                padding: '8px', 
+                borderRadius: '4px', 
+                border: '1px solid #ccc',
+                width: '250px'
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Summary */}
+        <div style={{ 
+          background: '#f8f9fc', 
+          padding: '15px', 
+          borderRadius: '8px', 
+          marginBottom: '20px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <div>
+            <strong>Showing {filteredTransactions.length} of {transactions.length} transactions</strong>
+            {unreviewedCount > 0 && (
+              <span style={{ color: '#ff6b35', marginLeft: '15px' }}>
+                {unreviewedCount} unreviewed
+              </span>
+            )}
+          </div>
+          
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button 
+              onClick={markAllAsReviewed}
+              style={{
+                padding: '8px 16px',
+                background: '#667eea',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer'
+              }}
+            >
+              Mark All as Reviewed
+            </button>
+            
+            <button 
+              onClick={refreshTransactions}
+              style={{
+                padding: '8px 16px',
+                background: '#ff6b35',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer'
+              }}
+            >
+              Fix Income/Expense
+            </button>
+          </div>
+        </div>
+
+        {/* Transaction List */}
+        <div style={{ 
+          maxHeight: '500px', 
+          overflowY: 'auto',
+          border: '1px solid #e1e5e9',
+          borderRadius: '8px'
+        }}>
+          {filteredTransactions.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: '#666' }}>
+              No transactions found for the selected criteria.
+            </div>
+          ) : (
+            filteredTransactions.map(transaction => (
+              <div 
+                key={transaction._id} 
+                style={{ 
+                  padding: '15px', 
+                  borderBottom: '1px solid #eee',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  backgroundColor: transaction.isReviewed ? '#f9f9f9' : '#fff'
+                }}
+              >
+                <div style={{ flex: '2' }}>
+                  <div style={{ fontWeight: 'bold', fontSize: '16px' }}>
+                    {transaction.merchantName || transaction.name}
+                  </div>
+                  <div style={{ fontSize: '14px', color: '#666', marginTop: '4px' }}>
+                    {new Date(transaction.date).toLocaleDateString()} | {transaction.accountName || `Account: ${transaction.accountId}`}
+                  </div>
+                  {transaction.category && transaction.category.length > 0 && (
+                    <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>
+                      Original: {transaction.category.join(' → ')}
+                    </div>
+                  )}
+                </div>
+                
+                <div style={{ 
+                  flex: '1', 
+                  textAlign: 'right', 
+                  marginRight: '20px' 
+                }}>
+                  {(() => {
+                    const isTransfer = isTransactionTransfer(transaction);
+                    const isIncome = isTransactionIncome(transaction);
+                    const isExpense = !isTransfer && !isIncome;
+                    
+                    if (isTransfer) {
+                      return (
+                        <>
+                          <div style={{ 
+                            fontWeight: 'bold', 
+                            fontSize: '16px',
+                            color: '#6c757d'
+                          }}>
+                            {formatCurrency(Math.abs(transaction.amount))}
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#6c757d' }}>
+                            Transfer
+                          </div>
+                        </>
+                      );
+                    }
+                    
+                    return (
+                      <>
+                        <div style={{ 
+                          fontWeight: 'bold', 
+                          fontSize: '16px',
+                          color: isIncome ? '#28a745' : '#dc3545'
+                        }}>
+                          {isIncome ? '+' : ''}{formatCurrency(Math.abs(transaction.amount))}
+                        </div>
+                        <div style={{ fontSize: '12px', color: isIncome ? '#28a745' : '#dc3545' }}>
+                          {isIncome ? 'Income' : 'Expense'}
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+                
+                <div style={{ flex: '1', minWidth: '200px' }}>
+                  <select
+                    value={transaction.finalCategory}
+                    onChange={(e) => updateTransactionCategory(transaction._id, e.target.value)}
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px',
+                      borderRadius: '4px',
+                      border: '1px solid #ccc',
+                      backgroundColor: transaction.isReviewed ? '#e8f5e8' : '#fff'
+                    }}
+                  >
+                    {(() => {
+                      const isTransfer = isTransactionTransfer(transaction);
+                      const isIncome = isTransactionIncome(transaction);
+                      
+                      // For transfers, show all categories (or could show a "Transfer" category)
+                      if (isTransfer) {
+                        return (
+                          <>
+                            <option value="uncategorized">Transfer</option>
+                            {EXPENSE_CATEGORIES.map(cat => (
+                              <option key={cat.value} value={cat.value}>
+                                {cat.label}
+                              </option>
+                            ))}
+                          </>
+                        );
+                      }
+                      
+                      // For income/expense, show appropriate categories
+                      return isIncome ? (
+                        INCOME_CATEGORIES.map(cat => (
+                          <option key={cat.value} value={cat.value}>
+                            {cat.label}
+                          </option>
+                        ))
+                      ) : (
+                        EXPENSE_CATEGORIES.map(cat => (
+                          <option key={cat.value} value={cat.value}>
+                            {cat.label}
+                          </option>
+                        ))
+                      );
+                    })()}  
+                  </select>
+                  
+                  {transaction.isReviewed && (
+                    <div style={{ 
+                      fontSize: '11px', 
+                      color: '#28a745', 
+                      marginTop: '2px' 
+                    }}>
+                      ✓ Reviewed
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Save Button */}
+        <div style={{ marginTop: '20px', textAlign: 'center' }}>
+          <button 
+            onClick={saveCategories} 
+            disabled={saving}
+            style={{ 
+              padding: '15px 30px', 
+              backgroundColor: saving ? '#ccc' : '#667eea', 
+              color: 'white', 
+              border: 'none', 
+              borderRadius: '8px',
+              fontSize: '16px',
+              fontWeight: '600',
+              cursor: saving ? 'not-allowed' : 'pointer',
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
+            }}
+          >
+            {saving ? 'Saving Categories...' : 'Save All Categories'}
+          </button>
+          
+          {onComplete && (
+            <button 
+              onClick={() => onComplete()}
+              style={{ 
+                padding: '15px 30px', 
+                backgroundColor: 'transparent', 
+                color: '#667eea', 
+                border: '2px solid #667eea', 
+                borderRadius: '8px',
+                fontSize: '16px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                marginLeft: '15px'
+              }}
+            >
+              Done & Return to Dashboard
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default TransactionReview;

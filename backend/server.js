@@ -1,6 +1,9 @@
-// Load environment variables based on NODE_ENV
-const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development';
+// Load environment variables based on NODE_ENV or ENV_FILE override
+// Allows using .env.production for real banking even when NODE_ENV=development
+const envFile = process.env.ENV_FILE || 
+  (process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development');
 require('dotenv').config({ path: envFile });
+console.log(`📁 Loading environment from: ${envFile}`);
 
 const express = require('express');
 const cors = require('cors');

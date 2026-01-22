@@ -17,6 +17,57 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [supabase, setSupabase] = useState(null);
 
+  // Auto-logout after inactivity (15 minutes = 900000 ms)
+  useEffect(() => {
+    if (!user || !session) return;
+
+    const INACTIVITY_TIMEOUT = 15 * 60 * 1000; // 15 minutes
+    let inactivityTimer;
+
+    const resetTimer = () => {
+      // Clear existing timer
+      if (inactivityTimer) {
+        clearTimeout(inactivityTimer);
+      }
+
+      // Set new timer
+      inactivityTimer = setTimeout(async () => {
+        console.log('Auto-logout due to inactivity');
+        if (supabase) {
+          await supabase.auth.signOut();
+        }
+      }, INACTIVITY_TIMEOUT);
+    };
+
+    // Activity events that reset the timer
+    const activityEvents = [
+      'mousedown',
+      'mousemove',
+      'keypress',
+      'scroll',
+      'touchstart',
+      'click'
+    ];
+
+    // Add event listeners
+    activityEvents.forEach(event => {
+      window.addEventListener(event, resetTimer, true);
+    });
+
+    // Initialize timer
+    resetTimer();
+
+    // Cleanup
+    return () => {
+      if (inactivityTimer) {
+        clearTimeout(inactivityTimer);
+      }
+      activityEvents.forEach(event => {
+        window.removeEventListener(event, resetTimer, true);
+      });
+    };
+  }, [user, session, supabase]);
+
   // Initialize Supabase client
   useEffect(() => {
     const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
@@ -24,6 +75,8 @@ export const AuthProvider = ({ children }) => {
 
     if (!supabaseUrl || !supabaseAnonKey) {
       console.error('Missing Supabase environment variables');
+      console.error('REACT_APP_SUPABASE_URL:', supabaseUrl ? '✅ Set' : '❌ Missing');
+      console.error('REACT_APP_SUPABASE_ANON_KEY:', supabaseAnonKey ? '✅ Set' : '❌ Missing');
       setLoading(false);
       return;
     }

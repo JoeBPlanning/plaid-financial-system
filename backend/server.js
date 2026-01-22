@@ -63,6 +63,7 @@ app.use(helmet()); // Security headers
 // CORS configuration - allow both development and production frontends
 const allowedOrigins = [
   'http://localhost:3000',
+  'https://plaid-financial-system-frontend.onrender.com', // Production frontend
   'https://plaid-financial-system-api.onrender.com',
   process.env.FRONTEND_URL // Allow custom frontend URL from env
 ].filter(Boolean); // Remove undefined values
@@ -78,7 +79,10 @@ app.use(cors({
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(cookieParser()); // Parse cookies
 app.use(express.json({ limit: '10mb' }));

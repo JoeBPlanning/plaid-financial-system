@@ -782,66 +782,24 @@ app.post('/api/clients/:clientId/sync-transactions', requireAuth, ensureClientOw
 });
 
 // Sync investments for a client
+// Investments endpoint disabled - investments functionality removed
 app.post('/api/clients/:clientId/sync-investments', requireAuth, ensureClientOwnership, async (req, res) => {
-  try {
-    // Derive clientId exclusively from authenticated JWT
-    const clientId = req.user.clientId;
-
-    const result = await investmentsSync.syncInvestmentsForClient(clientId);
-
-    res.json({
-      success: true,
-      message: 'Investment sync completed',
-      ...result
-    });
-  } catch (error) {
-    console.error('Error syncing investments:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
-    });
-  }
+  res.status(404).json({ 
+    success: false, 
+    error: 'Investments functionality has been removed' 
+  });
 });
 
-// Get investment holdings for a client
+// Investments endpoint disabled - investments functionality removed
 app.get('/api/clients/:clientId/investments', requireAuth, ensureClientOwnership, async (req, res) => {
-  try {
-    // Derive clientId exclusively from authenticated JWT
-    const clientId = req.user.clientId;
-    
-    const investments = Investment.find({ clientId });
-    
-    console.log(`📊 Found ${investments.length} investments for client ${clientId}`);
-    if (investments.length > 0) {
-      const totalValue = investments.reduce((sum, inv) => sum + (inv.value || 0), 0);
-      console.log(`💰 Total investment value: $${totalValue.toFixed(2)}`);
-      console.log(`📈 Sample investment:`, investments[0]);
-    }
-    
-    // Organize investments by tax type and calculate totals
-    const organized = organizeInvestmentsByTaxType(investments);
-    
-    // Calculate asset class breakdown
-    const assetClassBreakdown = investmentSnapshot.calculateAssetClassBreakdown(investments);
-    
-    console.log(`📊 Organized totalValue: $${organized.totalValue.toFixed(2)}`);
-    console.log(`📊 Asset class breakdown:`, assetClassBreakdown);
-    
-    res.json({
-      success: true,
-      investments: organized,
-      totalValue: organized.totalValue,
-      totalByTaxType: organized.totalByTaxType,
-      holdingsByAccount: organized.holdingsByAccount,
-      assetClassBreakdown
-    });
-  } catch (error) {
-    console.error('Error fetching investments:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
-    });
-  }
+  res.json({
+    success: true,
+    investments: { totalValue: 0, totalByTaxType: { 'tax-free': 0, 'tax-deferred': 0, 'taxable': 0 }, holdingsByAccount: [], holdingsBySecurity: [] },
+    totalValue: 0,
+    totalByTaxType: { 'tax-free': 0, 'tax-deferred': 0, 'taxable': 0 },
+    holdingsByAccount: [],
+    assetClassBreakdown: {}
+  });
 });
 
 // =============================================================================

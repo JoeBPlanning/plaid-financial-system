@@ -789,66 +789,24 @@ app.post('/api/clients/:clientId/sync-transactions', requireAuth, ensureClientOw
 });
 
 // Sync investments for a client
+// Investments endpoint disabled - investments functionality removed
 app.post('/api/clients/:clientId/sync-investments', requireAuth, ensureClientOwnership, async (req, res) => {
-  try {
-    // Derive clientId exclusively from authenticated JWT
-    const clientId = req.user.clientId;
-
-    const result = await investmentsSync.syncInvestmentsForClient(clientId);
-
-    res.json({
-      success: true,
-      message: 'Investment sync completed',
-      ...result
-    });
-  } catch (error) {
-    console.error('Error syncing investments:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
-    });
-  }
+  res.status(404).json({ 
+    success: false, 
+    error: 'Investments functionality has been removed' 
+  });
 });
 
-// Get investment holdings for a client
+// Investments endpoint disabled - investments functionality removed
 app.get('/api/clients/:clientId/investments', requireAuth, ensureClientOwnership, async (req, res) => {
-  try {
-    // Derive clientId exclusively from authenticated JWT
-    const clientId = req.user.clientId;
-    
-    const investments = await Investment.find({ clientId }) || [];
-    
-    console.log(`📊 Found ${investments?.length || 0} investments for client ${clientId}`);
-    if (investments && investments.length > 0) {
-      const totalValue = investments.reduce((sum, inv) => sum + (inv.value || 0), 0);
-      console.log(`💰 Total investment value: $${totalValue.toFixed(2)}`);
-      console.log(`📈 Sample investment:`, investments[0]);
-    }
-    
-    // Organize investments by tax type and calculate totals
-    const organized = organizeInvestmentsByTaxType(investments || []);
-    
-    // Calculate asset class breakdown
-    const assetClassBreakdown = investmentSnapshot.calculateAssetClassBreakdown(investments || []);
-    
-    console.log(`📊 Organized totalValue: $${organized.totalValue.toFixed(2)}`);
-    console.log(`📊 Asset class breakdown:`, assetClassBreakdown);
-    
-    res.json({
-      success: true,
-      investments: organized,
-      totalValue: organized.totalValue,
-      totalByTaxType: organized.totalByTaxType,
-      holdingsByAccount: organized.holdingsByAccount,
-      assetClassBreakdown
-    });
-  } catch (error) {
-    console.error('Error fetching investments:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
-    });
-  }
+  res.json({
+    success: true,
+    investments: { totalValue: 0, totalByTaxType: { 'tax-free': 0, 'tax-deferred': 0, 'taxable': 0 }, holdingsByAccount: [], holdingsBySecurity: [] },
+    totalValue: 0,
+    totalByTaxType: { 'tax-free': 0, 'tax-deferred': 0, 'taxable': 0 },
+    holdingsByAccount: [],
+    assetClassBreakdown: {}
+  });
 });
 
 // =============================================================================
@@ -1625,7 +1583,7 @@ app.post('/api/admin/statements/:documentId/process-ocr', requireAuth, requireAd
       return res.status(500).json({ error: 'Failed to update document status' });
     }
 
-    // TODO: Call Python OCR script here
+    // Call Python OCR script or use OCR service
     // For now, we'll simulate OCR processing
     // In production, you would call your Python script like this:
     /*
@@ -1641,7 +1599,7 @@ app.post('/api/admin/statements/:documentId/process-ocr', requireAuth, requireAd
       if (code === 0) {
         const ocrData = JSON.parse(ocrDataBuffer);
         // Update document with OCR data
-        await supabase
+        const { error: updateError } = await supabase
           .from('documents')
           .update({
             ocr_data: ocrData,
@@ -1650,9 +1608,19 @@ app.post('/api/admin/statements/:documentId/process-ocr', requireAuth, requireAd
             processed_by: req.user.clientId
           })
           .eq('id', documentId);
+
+        if (!updateError && ocrData.transactions && ocrData.transactions.length > 0) {
+          // Automatically extract transactions from OCR data
+          // This will be handled by calling the extract-transactions endpoint
+          // or you can call the extraction logic directly here
+        }
       }
     });
     */
+    
+    // Note: After OCR processing completes and ocr_data is saved,
+    // you should call POST /api/admin/statements/:documentId/extract-transactions
+    // to automatically extract and save transactions to the database
 
     logSecurityEvent('ocr_processing_started', req.user.clientId, req.ip, {
       documentId,
@@ -1799,6 +1767,171 @@ app.post('/api/admin/statements/:documentId/approve', requireAuth, requireAdmin,
   }
 });
 
+// Extract transactions from OCR data and save to database
+app.post('/api/admin/statements/:documentId/extract-transactions', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { documentId } = req.params;
+
+    // Get document with OCR data
+    const { data: document, error: fetchError } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('id', documentId)
+      .single();
+
+    if (fetchError || !document) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    if (!document.ocr_data) {
+      return res.status(400).json({ error: 'No OCR data available for this document. Please process OCR first.' });
+    }
+
+    const ocrData = document.ocr_data;
+    const clientId = document.client_id;
+    const transactionsCreated = [];
+    const transactionsUpdated = [];
+    const errors = [];
+
+    // Extract transactions from OCR data
+    // Expected OCR data structure:
+    // {
+    //   transactions: [
+    //     {
+    //       date: "2026-01-15",
+    //       amount: -45.50,
+    //       description: "AMAZON.COM",
+    //       merchant: "Amazon",
+    //       category: ["Food and Drink", "Groceries"],
+    //       accountName: "Chase Checking",
+    //       accountType: "depository"
+    //     }
+    //   ]
+    // }
+
+    if (!ocrData.transactions || !Array.isArray(ocrData.transactions)) {
+      return res.status(400).json({ 
+        error: 'No transactions found in OCR data. Expected ocrData.transactions to be an array.' 
+      });
+    }
+
+    // Process each transaction
+    for (const ocrTransaction of ocrData.transactions) {
+      try {
+        // Parse date
+        const transactionDate = ocrTransaction.date ? new Date(ocrTransaction.date) : new Date(document.statement_date);
+        const monthYear = moment(transactionDate).format('YYYY-MM');
+
+        // Determine account type from document or OCR data
+        const accountType = ocrTransaction.accountType || document.account_type || null;
+        const accountName = ocrTransaction.accountName || null;
+        const accountId = ocrTransaction.accountId || null;
+
+        // Create a unique transaction ID based on date, amount, and description
+        // This helps prevent duplicates
+        const transactionId = `${clientId}_${transactionDate.toISOString()}_${ocrTransaction.amount}_${ocrTransaction.description?.substring(0, 20) || ''}`;
+
+        // Categorize transaction using TransactionProcessor
+        const TransactionProcessor = require('./services/transactionProcessor');
+        const categorized = TransactionProcessor.categorizeTransaction({
+          amount: ocrTransaction.amount,
+          name: ocrTransaction.description || ocrTransaction.name || '',
+          merchant_name: ocrTransaction.merchant,
+          category: ocrTransaction.category || []
+        }, accountType);
+
+        // Prepare transaction data
+        const transactionData = {
+          clientId: clientId,
+          plaidTransactionId: transactionId, // Use custom ID since not from Plaid
+          accountId: accountId,
+          accountType: accountType,
+          accountSubtype: ocrTransaction.accountSubtype || null,
+          accountName: accountName,
+          accountMask: ocrTransaction.accountMask || null,
+          amount: parseFloat(ocrTransaction.amount) || 0,
+          date: transactionDate,
+          name: ocrTransaction.description || ocrTransaction.name || 'Unknown',
+          merchantName: ocrTransaction.merchant || null,
+          category: ocrTransaction.category || [],
+          plaidCategory: ocrTransaction.category?.[0] || null,
+          plaidSubCategory: ocrTransaction.category?.[1] || null,
+          personalFinanceCategory: null, // Not available from OCR
+          suggestedCategory: categorized.subCategory,
+          userCategory: null,
+          isReviewed: false, // Transactions from OCR need review
+          monthYear: monthYear,
+          notes: `Extracted from statement: ${document.filename}`,
+          institution: ocrTransaction.institution || document.account_type || 'Statement Upload'
+        };
+
+        // Use findOneAndUpdate with upsert to avoid duplicates
+        const existing = await Transaction.findOne({ 
+          clientId: clientId,
+          plaidTransactionId: transactionId 
+        });
+
+        if (existing) {
+          // Update existing transaction
+          await Transaction.update(existing.id, {
+            userCategory: transactionData.userCategory,
+            isReviewed: transactionData.isReviewed,
+            notes: transactionData.notes
+          });
+          transactionsUpdated.push(transactionData);
+        } else {
+          // Create new transaction
+          await Transaction.create(transactionData);
+          transactionsCreated.push(transactionData);
+        }
+
+      } catch (error) {
+        console.error(`Error processing transaction from OCR:`, error);
+        errors.push({
+          transaction: ocrTransaction,
+          error: error.message
+        });
+      }
+    }
+
+    // Update document status if transactions were successfully extracted
+    if (transactionsCreated.length > 0 || transactionsUpdated.length > 0) {
+      const { error: updateError } = await supabase
+        .from('documents')
+        .update({
+          status: 'processed',
+          processed_at: new Date().toISOString(),
+          processed_by: req.user.clientId
+        })
+        .eq('id', documentId);
+
+      if (updateError) {
+        console.error('Error updating document status:', updateError);
+      }
+    }
+
+    logSecurityEvent('transactions_extracted_from_ocr', req.user.clientId, req.ip, {
+      documentId,
+      transactionsCreated: transactionsCreated.length,
+      transactionsUpdated: transactionsUpdated.length,
+      errors: errors.length
+    });
+
+    res.json({
+      success: true,
+      message: `Extracted ${transactionsCreated.length} new transactions and updated ${transactionsUpdated.length} existing transactions`,
+      transactionsCreated: transactionsCreated.length,
+      transactionsUpdated: transactionsUpdated.length,
+      errors: errors.length,
+      errorDetails: errors.length > 0 ? errors : undefined
+    });
+
+  } catch (error) {
+    console.error('Extract transactions error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Reject a document (Admin only)
 app.post('/api/admin/statements/:documentId/reject', requireAuth, requireAdmin, async (req, res) => {
   try {
@@ -1848,8 +1981,12 @@ app.post('/api/admin/statements/:documentId/reject', requireAuth, requireAdmin, 
 // =============================================================================
 
 // Plaid routes
+// Plaid endpoint disabled - using statement upload + OCR instead
 app.post('/api/create_link_token', requireAuth, plaidLimiter, async (req, res) => {
-  try {
+  res.status(404).json({ 
+    error: 'Plaid integration has been removed. Please upload account statements instead.' 
+  });
+});
     // Derive clientId from authenticated JWT token
     const clientId = req.user.clientId;
 
@@ -1911,73 +2048,19 @@ app.post('/api/create_link_token', requireAuth, plaidLimiter, async (req, res) =
   }
 });
 
+// Plaid endpoint disabled - using statement upload + OCR instead
 app.post('/api/exchange_public_token', requireAuth, plaidLimiter, async (req, res) => {
-  try {
-    const { public_token } = req.body;
-    
-    if (!public_token) {
-      return res.status(400).json({ error: 'public_token is required' });
-    }
-
-    // Derive clientId from authenticated JWT token
-    const clientId = req.user.clientId;
-
-    // Exchange token with Plaid
-    const response = await plaidClient.itemPublicTokenExchange({
-      public_token: public_token
-    });
-    
-    const accessToken = response.data.access_token;
-    const itemId = response.data.item_id;
-
-    // Get institution info
-    const itemResponse = await plaidClient.itemGet({
-      access_token: accessToken
-    });
-    
-    const institutionId = itemResponse.data.item.institution_id;
-    
-    // Get institution details
-    const institutionResponse = await plaidClient.institutionsGetById({
-      institution_id: institutionId,
-      country_codes: ['US']
-    });
-    
-    const institutionName = institutionResponse.data.institution.name;
-
-    // Get account information
-    const accountsResponse = await plaidClient.accountsGet({
-      access_token: accessToken
-    });
-    
-    const accountIds = accountsResponse.data.accounts.map(account => account.account_id);
-
-    console.log(`✅ New access token created for client: ${clientId}`);
-    console.log(`   Institution: ${institutionName}`);
-    console.log(`   Item ID: ${itemId}`);
-    console.log(`   Accounts: ${accountIds.length} accounts connected`);
-    
-    // Return access_token so frontend can save it (will be encrypted when stored)
-    res.json({ 
-      success: true,
-      access_token: accessToken, // Needed for frontend to save via plaid-token endpoint
-      item_id: itemId,
-      institution_name: institutionName,
-      institution_id: institutionId,
-      account_ids: accountIds,
-      message: 'Bank account connected successfully'
-    });
-  } catch (error) {
-    console.error('Error exchanging public token:', error);
-    res.status(500).json({ 
-      error: error.message,
-      plaid_error: error.response?.data || null
-    });
-  }
+  res.status(404).json({ 
+    error: 'Plaid integration has been removed. Please upload account statements instead.' 
+  });
 });
 
 // Add Plaid token to client
+// Plaid endpoint disabled - using statement upload + OCR instead
 app.post('/api/clients/:clientId/plaid-token', requireAuth, ensureClientOwnership, async (req, res) => {
+  res.status(404).json({ 
+    error: 'Plaid integration has been removed. Please upload account statements instead.' 
+  });
   try {
     // Derive clientId exclusively from authenticated JWT
     const clientId = req.user.clientId;

@@ -172,12 +172,17 @@ class Client {
     const supabase = getDatabase();
 
     // Check if connection already exists for this item_id
-    const { data: existing } = await supabase
+    const { data: existing, error: checkError } = await supabase
       .from('plaid_connections')
       .select('id')
       .eq('client_id', clientId)
       .eq('item_id', tokenData.itemId)
-      .single();
+      .maybeSingle(); // Use maybeSingle() instead of single() to avoid error when no row found
+
+    if (checkError && checkError.code !== 'PGRST116') { // PGRST116 is "no rows returned"
+      console.error('Error checking for existing Plaid connection:', checkError);
+      throw checkError;
+    }
 
     if (existing) {
       // Update existing connection

@@ -1,13 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { usePlaidLink } from 'react-plaid-link';
-import { Pie } from 'react-chartjs-2';
-import {
-  Chart as ChartJS,
-  ArcElement,
-  Tooltip,
-  Legend
-} from 'chart.js';
+// Plaid integration removed - using statement upload + OCR instead
+// Chart.js imports removed - investments functionality removed
 import './App.css';
 import AdminDashboard from './AdminDashboard';
 import TransactionReview from './TransactionReview';
@@ -26,8 +20,7 @@ import {
 } from './supabaseClient';
 import config from './config';
 
-// Register Chart.js components
-ChartJS.register(ArcElement, Tooltip, Legend);
+// Chart.js registration removed - investments functionality removed
 
 // Configure axios to include Supabase auth token
 const axiosInstance = axios.create({
@@ -56,7 +49,6 @@ axiosInstance.interceptors.response.use(
       // Only sign out for actual auth failures, not missing data
       if (!error.config?.url?.includes('/summaries') &&
           !error.config?.url?.includes('/transactions') &&
-          !error.config?.url?.includes('/investments') &&
           !error.config?.url?.includes('/process-transactions')) {
         await signOut();
         window.location.href = '/';
@@ -74,7 +66,7 @@ function App() {
   // eslint-disable-next-line no-unused-vars
   const [session, setSession] = useState(null);
   const [client, setClient] = useState(null);
-  const [linkToken, setLinkToken] = useState(null);
+  // Plaid linkToken removed
   const [loading, setLoading] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [monthlySummary, setMonthlySummary] = useState(null);
@@ -82,8 +74,7 @@ function App() {
   const [unreviewedCount, setUnreviewedCount] = useState(0);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [currentNetWorth, setCurrentNetWorth] = useState(null);
-  const [investments, setInvestments] = useState(null);
-  const [investmentTaxFilter, setInvestmentTaxFilter] = useState('All Investments');
+  // Investments functionality removed
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isPasswordReset, setIsPasswordReset] = useState(false);
@@ -103,21 +94,7 @@ function App() {
   const [authSuccess, setAuthSuccess] = useState('');
   const [passwordStrength, setPasswordStrength] = useState({ isValid: false, errors: [] });
 
-  // Plaid Link configuration
-  const { open, ready } = usePlaidLink({
-    token: linkToken,
-    onSuccess: (public_token, metadata) => {
-      console.log('Plaid connection successful!', metadata);
-      handlePlaidSuccess(public_token, metadata);
-    },
-    onExit: (err, metadata) => {
-      console.log('Plaid connection exited', err, metadata);
-      setStep('dashboard');
-    },
-    onEvent: (eventName, metadata) => {
-      console.log('Plaid event:', eventName, metadata);
-    },
-  });
+  // Plaid integration removed - using statement upload + OCR instead
 
   // Auto-logout after 15 minutes of inactivity with 1-minute warning
   useEffect(() => {
@@ -502,7 +479,7 @@ function App() {
       setAuthMode('login');
       setAuthForm({ email: '', password: '', confirmPassword: '', firstName: '', lastName: '' });
       setMonthlySummary(null);
-      setInvestments(null);
+      // Investments functionality removed
     } catch (error) {
       console.error('Logout error:', error);
     }
@@ -591,7 +568,7 @@ function App() {
     }
   };
 
-  // Load current net worth and investments when client changes
+  // Load current net worth when client changes
   useEffect(() => {
     if (client && step === 'dashboard') {
       loadCurrentNetWorth(client.clientId);
@@ -599,26 +576,7 @@ function App() {
     }
   }, [client, step]);
 
-  // Load investments for client - DISABLED
-  const loadInvestments = async (clientId) => {
-    // Investments loading disabled - not needed
-    return;
-    /*
-    try {
-      const response = await axiosInstance.get(`/api/clients/${clientId}/investments`);
-      if (response.data.success) {
-        console.log('Investments loaded:', response.data);
-        setInvestments(response.data);
-      }
-    } catch (error) {
-      console.error('Error loading investments:', error);
-      // Don't show error if investments endpoint doesn't exist or no investments
-      if (error.response?.status !== 404) {
-        console.error('Could not load investments:', error);
-      }
-    }
-    */
-  };
+  // Investments functionality removed
 
   // Check for unreviewed transactions
   const checkUnreviewedTransactions = async (clientId) => {
@@ -645,65 +603,7 @@ function App() {
     }
   };
 
-  // Start bank connection process
-  const connectBank = async () => {
-    setLoading(true);
-    try {
-      // clientId is now derived from authenticated session cookie
-      const response = await axiosInstance.post(`/api/create_link_token`);
-      
-      setLinkToken(response.data.link_token);
-      setStep('connecting');
-    } catch (error) {
-      console.error('Error creating link token:', error);
-      alert('Failed to start bank connection. Please try again.');
-    }
-    setLoading(false);
-  };
-
-  // Handle successful Plaid connection
-  const handlePlaidSuccess = async (public_token, metadata) => {
-    setLoading(true);
-    try {
-      // Exchange public token for access token
-      // clientId is now derived from authenticated session cookie
-      const exchangeResponse = await axiosInstance.post(`/api/exchange_public_token`, {
-        public_token
-      });
-
-      // Add bank connection to client
-      await axiosInstance.post(`/api/clients/${client.clientId}/plaid-token`, {
-        accessToken: exchangeResponse.data.access_token,
-        itemId: exchangeResponse.data.item_id,
-        institutionName: exchangeResponse.data.institution_name,
-        institutionId: exchangeResponse.data.institution_id,
-        accountIds: exchangeResponse.data.account_ids
-      });
-
-      // Store transactions for review
-      await axiosInstance.post(`/api/clients/${client.clientId}/store-transactions`);
-
-      // Sync investments - DISABLED
-      // try {
-      //   await axiosInstance.post(`/api/clients/${client.clientId}/sync-investments`);
-      // } catch (invError) {
-      //   console.warn('Could not sync investments:', invError);
-      //   // Don't fail the whole connection if investments fail
-      // }
-
-      alert(`Successfully connected ${exchangeResponse.data.institution_name}! Please review and categorize your transactions.`);
-      setShowReview(true);
-      setStep('review');
-      
-    } catch (error) {
-      console.error('Error handling Plaid success:', error);
-      const errorMessage = error.response?.data?.error || error.message || 'Unknown error';
-      const errorDetails = error.response?.data?.details || error.response?.data?.hint || '';
-      console.error('Full error response:', error.response?.data);
-      alert(`Failed to complete bank connection: ${errorMessage}${errorDetails ? `\n\nDetails: ${errorDetails}` : ''}`);
-    }
-    setLoading(false);
-  };
+  // Plaid integration removed - users upload statements instead
 
   // Process transactions for the client
   const processTransactions = async (useReviewedTransactions = false) => {
@@ -760,12 +660,7 @@ function App() {
     setStep('review');
   };
 
-  // Open Plaid Link when token is ready
-  useEffect(() => {
-    if (linkToken && ready) {
-      open();
-    }
-  }, [linkToken, ready, open]);
+  // Plaid integration removed
 
   // Check if this is admin route
   if (window.location.pathname === '/admin') {
@@ -798,7 +693,7 @@ function App() {
       <div className="app">
         <div className="login-container">
           <h1>Financial Progress Portal</h1>
-          <p>Connect your bank accounts to get your monthly financial report</p>
+          <p>Upload your account statements to get your monthly financial report</p>
 
           {/* Password Reset Form */}
           {isPasswordReset && (
@@ -1112,18 +1007,7 @@ function App() {
     );
   }
 
-  // Connecting Screen
-  if (step === 'connecting') {
-    return (
-      <div className="app">
-        <div className="connecting-container">
-          <h2>Connecting Your Bank Account</h2>
-          <p>Please complete the bank connection process in the popup window.</p>
-          <button onClick={() => setStep('dashboard')}>Cancel</button>
-        </div>
-      </div>
-    );
-  }
+  // Plaid connecting step removed - using statement upload instead
 
   // Review Screen
   if (step === 'review' || showReview) {
@@ -1265,10 +1149,6 @@ function App() {
 
       <div className="dashboard">
         <div className="actions">
-          <button onClick={connectBank} disabled={loading}>
-            Connect Bank Account
-          </button>
-          
           <button 
             onClick={openTransactionReview}
             style={{
@@ -1377,8 +1257,7 @@ function App() {
                           </div>
                           <div className="breakdown-item" style={{paddingBottom: '8px'}}>
                             <div style={{display: 'flex', justifyContent: 'space-between'}}>
-                              <span>Investments:</span>
-                              <span>{formatCurrency(netWorth?.assetBreakdown?.investments || 0)}</span>
+                              {/* Investments removed */}
                             </div>
                           </div>
                           <div className="breakdown-item" style={{paddingBottom: '8px'}}>
@@ -1451,336 +1330,17 @@ function App() {
               )}
             </div>
             </div>
-            
-            {/* Investment Allocation - Below Financial Summary */}
-            {investments && investments.totalValue > 0 && investments.assetClassBreakdown && (
-              <div className="financial-summary" style={{ marginTop: '30px' }}>
-                <h2 style={{ marginTop: 0 }}>Investment Allocation</h2>
-                
-                {/* Tax Type Filter Dropdown */}
-                <div style={{ marginBottom: '20px' }}>
-                  <label htmlFor="tax-filter" style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
-                    Filter by Tax Type:
-                  </label>
-                  <select
-                    id="tax-filter"
-                    value={investmentTaxFilter}
-                    onChange={(e) => setInvestmentTaxFilter(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '10px',
-                      fontSize: '16px',
-                      border: '2px solid #e1e5e9',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      backgroundColor: 'white'
-                    }}
-                  >
-                    <option value="All Investments">All Investments</option>
-                    <option value="Tax-Free">Tax-Free</option>
-                    <option value="Tax-Deferred">Tax-Deferred</option>
-                    <option value="Taxable">Taxable</option>
-                  </select>
-                </div>
-
-                {/* Pie Chart */}
-                {(() => {
-                  // Filter asset class breakdown by tax type
-                  let filteredBreakdown = investments.assetClassBreakdown || {};
-                  let totalValue = investments.totalValue;
-                  
-                  if (investmentTaxFilter !== 'All Investments') {
-                    const taxTypeKey = investmentTaxFilter.toLowerCase().replace(' ', '-');
-                    const taxTypeValue = investments.totalByTaxType?.[taxTypeKey] || 0;
-                    
-                    // Calculate percentages for filtered accounts
-                    if (taxTypeValue > 0 && investments.holdingsByAccount) {
-                      const filteredAccounts = investments.holdingsByAccount.filter(
-                        acc => acc.accountTaxType === taxTypeKey
-                      );
-                      
-                      // Recalculate asset class breakdown for filtered accounts
-                      filteredBreakdown = {
-                        'US Equities': 0,
-                        'International': 0,
-                        'Emerging Markets': 0,
-                        'Real Estate': 0,
-                        'US Bonds': 0,
-                        'International Bonds': 0,
-                        'Cash': 0,
-                        'Other': 0
-                      };
-                      
-                      filteredAccounts.forEach(account => {
-                        account.holdings.forEach(holding => {
-                          // Use the asset class mapping from backend if available
-                          // For now, use a simplified mapping based on security type
-                          const securityType = (holding.securityType || '').toLowerCase();
-                          const securityName = (holding.securityName || '').toLowerCase();
-                          
-                          let assetClass = 'Other';
-                          if (securityType === 'cash' || securityType === 'money market') {
-                            assetClass = 'Cash';
-                          } else if (securityType === 'reit' || securityName.includes('reit')) {
-                            assetClass = 'Real Estate';
-                          } else if (securityType === 'bond') {
-                            assetClass = securityName.includes('international') || securityName.includes('global') 
-                              ? 'International Bonds' : 'US Bonds';
-                          } else if (securityType === 'equity' || securityType === 'stock' || securityType === 'etf') {
-                            if (securityName.includes('emerging market')) {
-                              assetClass = 'Emerging Markets';
-                            } else if (securityName.includes('international') || securityName.includes('global')) {
-                              assetClass = 'International';
-                            } else {
-                              assetClass = 'US Equities';
-                            }
-                          }
-                          
-                          filteredBreakdown[assetClass] = (filteredBreakdown[assetClass] || 0) + holding.value;
-                        });
-                      });
-                      
-                      totalValue = taxTypeValue;
-                    } else {
-                      filteredBreakdown = {
-                        'US Equities': 0,
-                        'International': 0,
-                        'Emerging Markets': 0,
-                        'Real Estate': 0,
-                        'US Bonds': 0,
-                        'International Bonds': 0,
-                        'Cash': 0,
-                        'Other': 0
-                      };
-                      totalValue = 0;
-                    }
-                  }
-                  
-                  // Prepare chart data
-                  const assetClasses = Object.keys(filteredBreakdown);
-                  const values = assetClasses.map(cls => filteredBreakdown[cls] || 0);
-                  const colors = [
-                    '#4A90E2', // US Equities - Blue
-                    '#50C878', // International - Green
-                    '#FF6B6B', // Emerging Markets - Red
-                    '#FFA500', // Real Estate - Orange
-                    '#9B59B6', // US Bonds - Purple
-                    '#3498DB', // International Bonds - Light Blue
-                    '#F39C12', // Cash - Gold
-                    '#95A5A6'  // Other - Gray
-                  ];
-                  
-                  const chartData = {
-                    labels: assetClasses.filter((_, idx) => values[idx] > 0),
-                    datasets: [{
-                      data: values.filter(v => v > 0),
-                      backgroundColor: colors.slice(0, values.filter(v => v > 0).length),
-                      borderWidth: 2,
-                      borderColor: '#fff'
-                    }]
-                  };
-                  
-                  const chartOptions = {
-                    responsive: true,
-                    maintainAspectRatio: true,
-                    plugins: {
-                      legend: {
-                        position: 'bottom',
-                        labels: {
-                          padding: 15,
-                          font: {
-                            size: 12
-                          }
-                        }
-                      },
-                      tooltip: {
-                        callbacks: {
-                          label: function(context) {
-                            const label = context.label || '';
-                            const value = context.parsed || 0;
-                            const percentage = totalValue > 0 ? ((value / totalValue) * 100).toFixed(1) : 0;
-                            return `${label}: ${formatCurrency(value)} (${percentage}%)`;
-                          }
-                        }
-                      }
-                    }
-                  };
-                  
-                  return totalValue > 0 ? (
-                    <div>
-                      <div style={{ marginBottom: '15px', textAlign: 'center' }}>
-                        <strong style={{ fontSize: '18px' }}>
-                          {formatCurrency(totalValue)}
-                        </strong>
-                        {investmentTaxFilter !== 'All Investments' && (
-                          <div style={{ fontSize: '0.9em', color: '#666', marginTop: '5px' }}>
-                            {investmentTaxFilter} Accounts Only
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ height: '400px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Pie data={chartData} options={chartOptions} />
-                      </div>
-                      
-                      {/* Asset Class Breakdown List */}
-                      <div style={{ marginTop: '20px', fontSize: '0.9em' }}>
-                        <strong>Breakdown:</strong>
-                        {assetClasses.map((assetClass, idx) => {
-                          const value = filteredBreakdown[assetClass] || 0;
-                          if (value === 0) return null;
-                          const percentage = totalValue > 0 ? (value / totalValue * 100).toFixed(1) : 0;
-                          return (
-                            <div key={idx} style={{ 
-                              display: 'flex', 
-                              justifyContent: 'space-between', 
-                              padding: '5px 0',
-                              borderBottom: '1px solid #f0f0f0'
-                            }}>
-                              <span>{assetClass}:</span>
-                              <span>
-                                {formatCurrency(value)} ({percentage}%)
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
-                      No investments found for {investmentTaxFilter}
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
           </div>
         ) : (
           <div className="no-data">
             <h3>No Financial Data Yet</h3>
-            <p>Connect your bank account and review your transactions to start generating monthly financial reports.</p>
-            <div style={{ marginTop: '20px' }}>
-              <button 
-                onClick={connectBank}
-                style={{
-                  padding: '12px 24px',
-                  backgroundColor: '#667eea',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '8px',
-                  fontSize: '16px',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                  marginRight: '15px'
-                }}
-              >
-                Connect Your First Bank Account
-              </button>
-            </div>
+            <p>Upload your account statements (bank statements, credit card statements) to start generating monthly financial reports.</p>
+            <p style={{ marginTop: '10px', fontSize: '14px', color: '#666' }}>
+              Use the "Upload Account Statements" section below to upload your statements. We'll extract transaction data using OCR and data parsing.
+            </p>
           </div>
         )}
 
-        {/* Investment Holdings Details Section (below main summary) */}
-        {investments && investments.totalValue > 0 && investments.holdingsByAccount && (
-          <div className="financial-summary" style={{ marginTop: '30px' }}>
-            <h2>Investment Holdings</h2>
-            
-            {/* Summary by Tax Type */}
-            <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px' }}>
-              <h3 style={{ marginTop: 0, marginBottom: '15px' }}>Total Investment Value: {formatCurrency(investments.totalValue)}</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px' }}>
-                <div>
-                  <strong>Tax-Free:</strong> {formatCurrency(investments.totalByTaxType?.['tax-free'] || 0)}
-                  <div style={{ fontSize: '0.9em', color: '#666' }}>
-                    {investments.totalValue > 0 ? ((investments.totalByTaxType?.['tax-free'] || 0) / investments.totalValue * 100).toFixed(1) : 0}%
-                  </div>
-                </div>
-                <div>
-                  <strong>Tax-Deferred:</strong> {formatCurrency(investments.totalByTaxType?.['tax-deferred'] || 0)}
-                  <div style={{ fontSize: '0.9em', color: '#666' }}>
-                    {investments.totalValue > 0 ? ((investments.totalByTaxType?.['tax-deferred'] || 0) / investments.totalValue * 100).toFixed(1) : 0}%
-                  </div>
-                </div>
-                <div>
-                  <strong>Taxable:</strong> {formatCurrency(investments.totalByTaxType?.['taxable'] || 0)}
-                  <div style={{ fontSize: '0.9em', color: '#666' }}>
-                    {investments.totalValue > 0 ? ((investments.totalByTaxType?.['taxable'] || 0) / investments.totalValue * 100).toFixed(1) : 0}%
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Holdings by Account */}
-            <div>
-              <h3>Holdings by Account</h3>
-              {investments.holdingsByAccount && investments.holdingsByAccount.map((account, idx) => (
-                <div key={idx} style={{ marginBottom: '25px', padding: '15px', border: '1px solid #e1e5e9', borderRadius: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                    <div>
-                      <strong>{account.accountName}</strong>
-                      <div style={{ fontSize: '0.9em', color: '#666' }}>
-                        {account.institutionName} • {account.accountSubtype || account.accountType}
-                        <span style={{ 
-                          marginLeft: '10px', 
-                          padding: '2px 8px', 
-                          backgroundColor: account.accountTaxType === 'tax-free' ? '#d4edda' : 
-                                          account.accountTaxType === 'tax-deferred' ? '#fff3cd' : '#d1ecf1',
-                          borderRadius: '4px',
-                          fontSize: '0.85em'
-                        }}>
-                          {account.accountTaxType || 'taxable'}
-                        </span>
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <strong>{formatCurrency(account.totalValue)}</strong>
-                      <div style={{ fontSize: '0.9em', color: '#666' }}>
-                        {investments.totalValue > 0 ? (account.totalValue / investments.totalValue * 100).toFixed(1) : 0}% of total
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Holdings in this account */}
-                  <div style={{ marginTop: '15px' }}>
-                    {account.holdings && account.holdings.length > 0 ? (
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9em' }}>
-                        <thead>
-                          <tr style={{ borderBottom: '2px solid #e1e5e9' }}>
-                            <th style={{ textAlign: 'left', padding: '8px' }}>Security</th>
-                            <th style={{ textAlign: 'right', padding: '8px' }}>Quantity</th>
-                            <th style={{ textAlign: 'right', padding: '8px' }}>Price</th>
-                            <th style={{ textAlign: 'right', padding: '8px' }}>Value</th>
-                            <th style={{ textAlign: 'right', padding: '8px' }}>% of Account</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {account.holdings.map((holding, hIdx) => (
-                            <tr key={hIdx} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                              <td style={{ padding: '8px' }}>
-                                <div>
-                                  <strong>{holding.securityName}</strong>
-                                  {holding.securityTicker && (
-                                    <span style={{ color: '#666', marginLeft: '8px' }}>({holding.securityTicker})</span>
-                                  )}
-                                </div>
-                                <div style={{ fontSize: '0.85em', color: '#999' }}>{holding.securityType}</div>
-                              </td>
-                              <td style={{ textAlign: 'right', padding: '8px' }}>{holding.quantity.toFixed(4)}</td>
-                              <td style={{ textAlign: 'right', padding: '8px' }}>{formatCurrency(holding.price)}</td>
-                              <td style={{ textAlign: 'right', padding: '8px', fontWeight: '600' }}>{formatCurrency(holding.value)}</td>
-                              <td style={{ textAlign: 'right', padding: '8px', color: '#666' }}>{holding.percentage.toFixed(1)}%</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    ) : (
-                      <div style={{ color: '#999', fontStyle: 'italic' }}>No holdings in this account</div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* Statement Upload Section */}
         <StatementUpload client={client} />

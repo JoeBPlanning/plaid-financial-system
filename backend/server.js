@@ -1987,66 +1987,6 @@ app.post('/api/create_link_token', requireAuth, plaidLimiter, async (req, res) =
     error: 'Plaid integration has been removed. Please upload account statements instead.' 
   });
 });
-    // Derive clientId from authenticated JWT token
-    const clientId = req.user.clientId;
-
-    // Validate Plaid configuration
-    if (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_SECRET) {
-      console.error('❌ Missing Plaid credentials:', {
-        hasClientId: !!process.env.PLAID_CLIENT_ID,
-        hasSecret: !!process.env.PLAID_SECRET,
-        env: process.env.PLAID_ENV
-      });
-      return res.status(500).json({ 
-        error: 'Plaid configuration is missing. Please check your environment variables.',
-        details: 'PLAID_CLIENT_ID and PLAID_SECRET must be set'
-      });
-    }
-
-    const request = {
-      user: {
-        client_user_id: clientId
-      },
-      client_name: "Financial Advisory System",
-      products: ['transactions', 'investments'], // Removed 'assets' - not available in production account
-      country_codes: ['US'],
-      language: 'en'
-    };
-
-    console.log(`🔗 Creating link token for client ${clientId} in ${process.env.PLAID_ENV || 'sandbox'} environment`);
-    const response = await plaidClient.linkTokenCreate(request);
-    
-    console.log(`✅ Link token created successfully for client ${clientId}`);
-    res.json({ 
-      link_token: response.data.link_token,
-      expiration: response.data.expiration
-    });
-  } catch (error) {
-    console.error('❌ Error creating link token:', {
-      message: error.message,
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      data: error.response?.data,
-      env: process.env.PLAID_ENV,
-      hasClientId: !!process.env.PLAID_CLIENT_ID,
-      hasSecret: !!process.env.PLAID_SECRET
-    });
-    
-    // Provide more helpful error messages
-    let errorMessage = 'Failed to create Plaid link token';
-    if (error.response?.data) {
-      errorMessage = error.response.data.error_message || error.response.data.error_code || errorMessage;
-    } else if (error.message) {
-      errorMessage = error.message;
-    }
-    
-    res.status(500).json({ 
-      error: errorMessage,
-      plaid_error: error.response?.data || null,
-      environment: process.env.PLAID_ENV || 'sandbox'
-    });
-  }
-});
 
 // Plaid endpoint disabled - using statement upload + OCR instead
 app.post('/api/exchange_public_token', requireAuth, plaidLimiter, async (req, res) => {
@@ -2061,63 +2001,6 @@ app.post('/api/clients/:clientId/plaid-token', requireAuth, ensureClientOwnershi
   res.status(404).json({ 
     error: 'Plaid integration has been removed. Please upload account statements instead.' 
   });
-  try {
-    // Derive clientId exclusively from authenticated JWT
-    const clientId = req.user.clientId;
-    const { accessToken, itemId, institutionName, institutionId, accountIds } = req.body;
-    
-    if (!accessToken || !itemId || !institutionName) {
-      return res.status(400).json({ error: 'Missing required fields: accessToken, itemId, and institutionName are required' });
-    }
-
-    // Use the proper method that encrypts the token
-    await Client.addPlaidTokenToClient(clientId, {
-      accessToken,
-      itemId,
-      institutionName,
-      institutionId,
-      accountIds: accountIds || [],
-      isActive: true,
-      transactionCursor: null // Initialize cursor for transactionsSync
-    });
-
-    const client = await Client.findOne({ clientId });
-    if (!client) {
-      return res.status(404).json({ error: 'Client not found after adding token' });
-    }
-
-    res.json({
-      success: true,
-      message: `Added ${institutionName} to client`,
-      institution_name: institutionName,
-      totalConnections: client.plaidAccessTokens?.length || 1
-    });
-  } catch (error) {
-    console.error('Error saving Plaid token:', {
-      message: error.message,
-      stack: error.stack,
-      body: req.body,
-      clientId,
-      errorCode: error.code,
-      errorDetails: error.details,
-      errorHint: error.hint
-    });
-    
-    // Return more detailed error information
-    const errorResponse = {
-      error: error.message || 'Failed to save Plaid token',
-      code: error.code,
-      details: error.details,
-      hint: error.hint
-    };
-    
-    // Include stack trace in non-production
-    if (process.env.NODE_ENV !== 'production') {
-      errorResponse.stack = error.stack;
-    }
-    
-    res.status(500).json(errorResponse);
-  }
 });
 
 // NOTE: Direct Plaid proxy routes using access_token in URL

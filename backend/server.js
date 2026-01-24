@@ -95,10 +95,17 @@ app.use('/api', webhookRoutes);
 app.use(apiLimiter);
 
 // Plaid configuration
-const { createPlaidClient, getPlaidEnvironment } = require('./utils/plaidConfig');
-const plaidBasePath = getPlaidEnvironment();
-console.log(`🔧 Plaid Environment: ${process.env.PLAID_ENV || 'sandbox'} (basePath: ${plaidBasePath})`);
-const plaidClient = createPlaidClient();
+let plaidClient;
+try {
+  const { createPlaidClient, getPlaidEnvironment } = require('./utils/plaidConfig');
+  const plaidBasePath = getPlaidEnvironment();
+  console.log(`🔧 Plaid Environment: ${process.env.PLAID_ENV || 'sandbox'} (basePath: ${plaidBasePath})`);
+  plaidClient = createPlaidClient();
+  console.log(`✅ Plaid client initialized successfully`);
+} catch (error) {
+  console.error('❌ Failed to initialize Plaid client:', error);
+  throw error; // Fail fast if Plaid can't be initialized
+}
 
 // Basic routes
 app.get('/', (req, res) => {
@@ -1864,7 +1871,7 @@ app.post('/api/create_link_token', requireAuth, plaidLimiter, async (req, res) =
         client_user_id: clientId
       },
       client_name: "Financial Advisory System",
-      products: ['transactions', 'investments', 'assets'],
+      products: ['transactions', 'investments'], // Removed 'assets' - not available in production account
       country_codes: ['US'],
       language: 'en'
     };

@@ -1864,7 +1864,7 @@ app.post('/api/create_link_token', requireAuth, plaidLimiter, async (req, res) =
         client_user_id: clientId
       },
       client_name: "Financial Advisory System",
-      products: ['transactions', 'investments', 'assets'],
+      products: ['transactions', 'investments'], // Removed 'assets' - not available in production account
       country_codes: ['US'],
       language: 'en'
     };

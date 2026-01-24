@@ -31,19 +31,52 @@ const axiosInstance = axios.create({
 // Add Supabase auth token to all requests
 axiosInstance.interceptors.request.use(async (config) => {
   try {
-    // Get fresh session (Supabase auto-refreshes expired tokens)
-    const { data: { session }, error } = await supabase.auth.getSession();
-    if (error) {
-      console.error('Error getting session:', error);
+    // Get current session
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    
+    if (sessionError) {
+      console.error('Error getting session in request interceptor:', sessionError);
     }
-    if (session?.access_token) {
-      config.headers.Authorization = `Bearer ${session.access_token}`;
+    
+    let accessToken = session?.access_token;
+    
+    // If we have a session but the token might be expired, try to refresh
+    if (session?.refresh_token && (!accessToken || isTokenExpired(session.expires_at))) {
+      console.log('Token expired or missing, attempting refresh...');
+      try {
+        const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession({
+          refresh_token: session.refresh_token
+        });
+        
+        if (refreshError) {
+          console.error('Error refreshing token in request interceptor:', refreshError);
+        } else if (refreshedSession?.access_token) {
+          console.log('Token refreshed successfully in request interceptor');
+          accessToken = refreshedSession.access_token;
+        }
+      } catch (refreshError) {
+        console.error('Exception during token refresh in request interceptor:', refreshError);
+      }
+    }
+    
+    if (accessToken) {
+      config.headers.Authorization = `Bearer ${accessToken}`;
+    } else {
+      console.warn('No access token available for request:', config.url);
     }
   } catch (error) {
     console.error('Error in request interceptor:', error);
   }
   return config;
 });
+
+// Helper function to check if token is expired
+function isTokenExpired(expiresAt) {
+  if (!expiresAt) return true;
+  // Add 60 second buffer to refresh before actual expiration
+  const expirationTime = new Date(expiresAt).getTime() - 60000;
+  return Date.now() >= expirationTime;
+}
 
 // Handle authentication errors
 axiosInstance.interceptors.response.use(
@@ -74,9 +107,9 @@ axiosInstance.interceptors.response.use(
 
       // Try to refresh the session token
       try {
-        console.log('Attempting to refresh token...');
+        console.log('Attempting to refresh token for:', error.config?.url);
         
-        // Get current session - Supabase should auto-refresh if needed
+        // Get current session
         const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
         
         if (sessionError) {
@@ -85,14 +118,13 @@ axiosInstance.interceptors.response.use(
         
         let newAccessToken = null;
         
-        // If we have a valid session with access token, use it
-        if (currentSession?.access_token) {
-          console.log('Using current session access token');
-          newAccessToken = currentSession.access_token;
-        } 
-        // If we have a refresh token but no access token, try to refresh
-        else if (currentSession?.refresh_token) {
-          console.log('Attempting manual token refresh...');
+        // Check if current token is expired or missing
+        const tokenExpired = !currentSession?.access_token || 
+                            (currentSession.expires_at && isTokenExpired(currentSession.expires_at));
+        
+        // If token is expired or missing, try to refresh
+        if (tokenExpired && currentSession?.refresh_token) {
+          console.log('Token expired, attempting manual refresh...');
           const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession({
             refresh_token: currentSession.refresh_token
           });
@@ -103,13 +135,20 @@ axiosInstance.interceptors.response.use(
             console.log('Token refreshed successfully');
             newAccessToken = refreshedSession.access_token;
           }
+        } 
+        // If we have a valid access token, use it (might have been auto-refreshed)
+        else if (currentSession?.access_token) {
+          console.log('Using current session access token');
+          newAccessToken = currentSession.access_token;
         }
         
         // If we got a new token, retry the request
         if (newAccessToken) {
-          console.log('Retrying request with new token');
+          console.log('Retrying request with refreshed token');
           error.config.headers.Authorization = `Bearer ${newAccessToken}`;
           error.config._retry = true;
+          // Clear any cached response
+          delete error.config.transformRequest;
           return axiosInstance.request(error.config);
         } else {
           console.error('No valid token available after refresh attempt');

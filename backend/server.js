@@ -816,20 +816,20 @@ app.get('/api/clients/:clientId/investments', requireAuth, ensureClientOwnership
     // Derive clientId exclusively from authenticated JWT
     const clientId = req.user.clientId;
     
-    const investments = Investment.find({ clientId });
+    const investments = await Investment.find({ clientId }) || [];
     
-    console.log(`📊 Found ${investments.length} investments for client ${clientId}`);
-    if (investments.length > 0) {
+    console.log(`📊 Found ${investments?.length || 0} investments for client ${clientId}`);
+    if (investments && investments.length > 0) {
       const totalValue = investments.reduce((sum, inv) => sum + (inv.value || 0), 0);
       console.log(`💰 Total investment value: $${totalValue.toFixed(2)}`);
       console.log(`📈 Sample investment:`, investments[0]);
     }
     
     // Organize investments by tax type and calculate totals
-    const organized = organizeInvestmentsByTaxType(investments);
+    const organized = organizeInvestmentsByTaxType(investments || []);
     
     // Calculate asset class breakdown
-    const assetClassBreakdown = investmentSnapshot.calculateAssetClassBreakdown(investments);
+    const assetClassBreakdown = investmentSnapshot.calculateAssetClassBreakdown(investments || []);
     
     console.log(`📊 Organized totalValue: $${organized.totalValue.toFixed(2)}`);
     console.log(`📊 Asset class breakdown:`, assetClassBreakdown);
@@ -1957,9 +1957,10 @@ app.post('/api/exchange_public_token', requireAuth, plaidLimiter, async (req, re
     console.log(`   Item ID: ${itemId}`);
     console.log(`   Accounts: ${accountIds.length} accounts connected`);
     
-    // NEVER expose access_token in API response - it's sensitive!
+    // Return access_token so frontend can save it (will be encrypted when stored)
     res.json({ 
       success: true,
+      access_token: accessToken, // Needed for frontend to save via plaid-token endpoint
       item_id: itemId,
       institution_name: institutionName,
       institution_id: institutionId,
@@ -1982,33 +1983,38 @@ app.post('/api/clients/:clientId/plaid-token', requireAuth, ensureClientOwnershi
     const clientId = req.user.clientId;
     const { accessToken, itemId, institutionName, institutionId, accountIds } = req.body;
     
-    const client = await Client.findOne({ clientId });
-    if (!client) {
-      return res.status(404).json({ error: 'Client not found' });
+    if (!accessToken || !itemId || !institutionName) {
+      return res.status(400).json({ error: 'Missing required fields: accessToken, itemId, and institutionName are required' });
     }
 
-    // Add the new Plaid connection
-    client.plaidAccessTokens.push({
+    // Use the proper method that encrypts the token
+    await Client.addPlaidTokenToClient(clientId, {
       accessToken,
       itemId,
       institutionName,
       institutionId,
-      accountIds,
+      accountIds: accountIds || [],
       isActive: true,
-      connectedAt: new Date(),
       transactionCursor: null // Initialize cursor for transactionsSync
     });
 
-    await client.save();
+    const client = await Client.findOne({ clientId });
+    if (!client) {
+      return res.status(404).json({ error: 'Client not found after adding token' });
+    }
 
     res.json({
       success: true,
-      message: `Added ${institutionName} to client ${client.name}`,
-      totalConnections: client.plaidAccessTokens.length
+      message: `Added ${institutionName} to client`,
+      institution_name: institutionName,
+      totalConnections: client.plaidAccessTokens?.length || 1
     });
   } catch (error) {
     console.error('Error saving Plaid token:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ 
+      error: error.message,
+      details: error.stack // Include stack trace for debugging
+    });
   }
 });
 
@@ -2596,6 +2602,20 @@ app.use((error, req, res, next) => {
  * Returns structured data for frontend display
  */
 function organizeInvestmentsByTaxType(investments) {
+  // Handle undefined or null investments
+  if (!investments || !Array.isArray(investments)) {
+    return {
+      totalValue: 0,
+      totalByTaxType: {
+        'tax-free': 0,
+        'tax-deferred': 0,
+        'taxable': 0
+      },
+      holdingsByAccount: [],
+      holdingsBySecurity: []
+    };
+  }
+  
   const totalByTaxType = {
     'tax-free': 0,
     'tax-deferred': 0,

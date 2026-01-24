@@ -595,12 +595,15 @@ function App() {
   useEffect(() => {
     if (client && step === 'dashboard') {
       loadCurrentNetWorth(client.clientId);
-      loadInvestments(client.clientId);
+      // loadInvestments(client.clientId); // Disabled - investments not needed
     }
   }, [client, step]);
 
-  // Load investments for client
+  // Load investments for client - DISABLED
   const loadInvestments = async (clientId) => {
+    // Investments loading disabled - not needed
+    return;
+    /*
     try {
       const response = await axiosInstance.get(`/api/clients/${clientId}/investments`);
       if (response.data.success) {
@@ -614,6 +617,7 @@ function App() {
         console.error('Could not load investments:', error);
       }
     }
+    */
   };
 
   // Check for unreviewed transactions
@@ -679,13 +683,13 @@ function App() {
       // Store transactions for review
       await axiosInstance.post(`/api/clients/${client.clientId}/store-transactions`);
 
-      // Sync investments
-      try {
-        await axiosInstance.post(`/api/clients/${client.clientId}/sync-investments`);
-      } catch (invError) {
-        console.warn('Could not sync investments:', invError);
-        // Don't fail the whole connection if investments fail
-      }
+      // Sync investments - DISABLED
+      // try {
+      //   await axiosInstance.post(`/api/clients/${client.clientId}/sync-investments`);
+      // } catch (invError) {
+      //   console.warn('Could not sync investments:', invError);
+      //   // Don't fail the whole connection if investments fail
+      // }
 
       alert(`Successfully connected ${exchangeResponse.data.institution_name}! Please review and categorize your transactions.`);
       setShowReview(true);
@@ -719,13 +723,13 @@ function App() {
       // Sync transactions
       await axiosInstance.post(`/api/clients/${client.clientId}/sync-transactions`);
       
-      // Sync investments
-      try {
-        await axiosInstance.post(`/api/clients/${client.clientId}/sync-investments`);
-      } catch (invError) {
-        console.warn('Could not sync investments:', invError);
-        // Don't fail the whole refresh if investments fail
-      }
+      // Sync investments - DISABLED
+      // try {
+      //   await axiosInstance.post(`/api/clients/${client.clientId}/sync-investments`);
+      // } catch (invError) {
+      //   console.warn('Could not sync investments:', invError);
+      //   // Don't fail the whole refresh if investments fail
+      // }
       
       // Process transactions to generate summary
       await processTransactions(true);
@@ -733,8 +737,8 @@ function App() {
       // Reload monthly summary
       await loadMonthlySummary(client.clientId, selectedMonth);
       
-      // Reload investments
-      await loadInvestments(client.clientId);
+      // Reload investments - DISABLED
+      // await loadInvestments(client.clientId);
       
       // Check for unreviewed transactions
       await checkUnreviewedTransactions(client.clientId);

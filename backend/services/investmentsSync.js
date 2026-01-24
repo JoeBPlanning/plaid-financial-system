@@ -1,19 +1,9 @@
-const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
+const { createPlaidClient } = require('../utils/plaidConfig');
 const Client = require('../models-supabase/Client');
 const Investment = require('../models-supabase/Investment');
 
 // Initialize Plaid client
-const configuration = new Configuration({
-  basePath: PlaidEnvironments[process.env.PLAID_ENV] || PlaidEnvironments.sandbox,
-  baseOptions: {
-    headers: {
-      'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
-      'PLAID-SECRET': process.env.PLAID_SECRET,
-    },
-  },
-});
-
-const plaidClient = new PlaidApi(configuration);
+const plaidClient = createPlaidClient();
 
 /**
  * Determine account tax type based on account subtype and name

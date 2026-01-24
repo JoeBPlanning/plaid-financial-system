@@ -69,7 +69,9 @@ axiosInstance.interceptors.response.use(
 function App() {
   const [step, setStep] = useState('login');
   const [authMode, setAuthMode] = useState('login'); // 'login', 'register', 'forgot-password'
+  // eslint-disable-next-line no-unused-vars
   const [user, setUser] = useState(null);
+  // eslint-disable-next-line no-unused-vars
   const [session, setSession] = useState(null);
   const [client, setClient] = useState(null);
   const [linkToken, setLinkToken] = useState(null);
@@ -87,6 +89,7 @@ function App() {
   const [isPasswordReset, setIsPasswordReset] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [showInactivityWarning, setShowInactivityWarning] = useState(false);
 
   // Auth form state
   const [authForm, setAuthForm] = useState({
@@ -115,6 +118,86 @@ function App() {
       console.log('Plaid event:', eventName, metadata);
     },
   });
+
+  // Auto-logout after 15 minutes of inactivity with 1-minute warning
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!user || !session) {
+      setShowInactivityWarning(false);
+      return;
+    }
+
+    const INACTIVITY_TIMEOUT = 15 * 60 * 1000; // 15 minutes
+    const WARNING_TIME = 14 * 60 * 1000; // 14 minutes (1 minute before logout)
+    let inactivityTimer;
+    let warningTimer;
+
+    const resetTimer = () => {
+      // Clear existing timers
+      if (inactivityTimer) {
+        clearTimeout(inactivityTimer);
+      }
+      if (warningTimer) {
+        clearTimeout(warningTimer);
+      }
+
+      // Hide warning if user becomes active
+      setShowInactivityWarning(false);
+
+      // Set warning timer (14 minutes)
+      warningTimer = setTimeout(() => {
+        setShowInactivityWarning(true);
+      }, WARNING_TIME);
+
+      // Set logout timer (15 minutes)
+      inactivityTimer = setTimeout(async () => {
+        console.log('Auto-logout due to inactivity (15 minutes)');
+        setShowInactivityWarning(false);
+        try {
+          await signOut();
+          setUser(null);
+          setSession(null);
+          setClient(null);
+          setStep('login');
+          setAuthMode('login');
+        } catch (error) {
+          console.error('Auto-logout error:', error);
+        }
+      }, INACTIVITY_TIMEOUT);
+    };
+
+    // Activity events that reset the timer
+    const activityEvents = [
+      'mousedown',
+      'mousemove',
+      'keypress',
+      'scroll',
+      'touchstart',
+      'click'
+    ];
+
+    // Add event listeners
+    activityEvents.forEach(event => {
+      window.addEventListener(event, resetTimer, true);
+    });
+
+    // Initialize timer
+    resetTimer();
+
+    // Cleanup
+    return () => {
+      if (inactivityTimer) {
+        clearTimeout(inactivityTimer);
+      }
+      if (warningTimer) {
+        clearTimeout(warningTimer);
+      }
+      activityEvents.forEach(event => {
+        window.removeEventListener(event, resetTimer, true);
+      });
+      setShowInactivityWarning(false);
+    };
+  }, [user, session]);
 
   // Check session on mount
   useEffect(() => {
@@ -229,7 +312,7 @@ function App() {
       }
 
       const fullName = `${authForm.firstName} ${authForm.lastName}`.trim();
-      const { data, error } = await signUp(authForm.email, authForm.password, fullName);
+      const { error } = await signUp(authForm.email, authForm.password, fullName);
 
       if (error) {
         if (error.message.includes('already registered')) {
@@ -1063,6 +1146,71 @@ function App() {
   // Dashboard Screen
   return (
     <div className="app">
+      {/* Inactivity Warning Modal */}
+      {showInactivityWarning && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 10000
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            padding: '30px',
+            borderRadius: '12px',
+            maxWidth: '400px',
+            width: '90%',
+            boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)',
+            textAlign: 'center'
+          }}>
+            <div style={{
+              fontSize: '48px',
+              marginBottom: '20px'
+            }}>⏰</div>
+            <h2 style={{
+              margin: '0 0 15px 0',
+              color: '#d32f2f',
+              fontSize: '24px'
+            }}>Session Timeout Warning</h2>
+            <p style={{
+              margin: '0 0 25px 0',
+              color: '#666',
+              fontSize: '16px',
+              lineHeight: '1.5'
+            }}>
+              You've been inactive for 14 minutes. You will be automatically logged out in <strong>1 minute</strong> for security.
+            </p>
+            <button
+              onClick={() => {
+                setShowInactivityWarning(false);
+                // Trigger activity to reset timer
+                window.dispatchEvent(new Event('mousedown'));
+              }}
+              style={{
+                backgroundColor: '#1976d2',
+                color: 'white',
+                border: 'none',
+                padding: '12px 30px',
+                borderRadius: '6px',
+                fontSize: '16px',
+                cursor: 'pointer',
+                fontWeight: '600',
+                transition: 'background-color 0.2s'
+              }}
+              onMouseOver={(e) => e.target.style.backgroundColor = '#1565c0'}
+              onMouseOut={(e) => e.target.style.backgroundColor = '#1976d2'}
+            >
+              Stay Logged In
+            </button>
+          </div>
+        </div>
+      )}
       <header className="header">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1200px', margin: '0 auto' }}>
           <div>

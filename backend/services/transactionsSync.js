@@ -1,21 +1,11 @@
-const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
+const { createPlaidClient } = require('../utils/plaidConfig');
 const Client = require('../models-supabase/Client');
 const Transaction = require('../models-supabase/Transaction');
 const TransactionProcessor = require('./transactionProcessor');
 const moment = require('moment');
 
 // Initialize Plaid client
-const configuration = new Configuration({
-  basePath: PlaidEnvironments[process.env.PLAID_ENV] || PlaidEnvironments.sandbox,
-  baseOptions: {
-    headers: {
-      'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
-      'PLAID-SECRET': process.env.PLAID_SECRET,
-    },
-  },
-});
-
-const plaidClient = new PlaidApi(configuration);
+const plaidClient = createPlaidClient();
 
 // Helper function to sleep (for polling)
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));

@@ -19,6 +19,7 @@ const DocumentReview = ({ selectedClient }) => {
     if (selectedClient) {
       loadDocuments();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedClient, filterStatus]);
 
   const loadDocuments = async () => {
@@ -94,7 +95,7 @@ const DocumentReview = ({ selectedClient }) => {
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const response = await axios.post(
+      await axios.post(
         `${config.API_BASE}/api/admin/statements/${doc.id}/process-ocr`,
         {},
         {
@@ -161,7 +162,7 @@ const DocumentReview = ({ selectedClient }) => {
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const response = await axios.post(
+      await axios.post(
         `${config.API_BASE}/api/admin/statements/${doc.id}/approve`,
         {},
         {

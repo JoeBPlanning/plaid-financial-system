@@ -31,10 +31,13 @@ This creates a `build/` folder with static files.
      - **Note**: Don't use `cd frontend` here because Root Directory is already set
    - **Publish Directory**: `build`
      - **Note**: This is relative to the Root Directory (`frontend/build` becomes just `build`)
-   - **Environment Variables**:
+   - **Environment Variables** (Add ALL of these):
      ```
      REACT_APP_API_BASE=https://plaid-financial-system-api.onrender.com
+     REACT_APP_SUPABASE_URL=your_supabase_url_here
+     REACT_APP_SUPABASE_ANON_KEY=your_supabase_anon_key_here
      ```
+     ⚠️ **IMPORTANT**: You need Supabase environment variables too!
 
 5. Click **"Create Static Site"**
 
@@ -80,9 +83,9 @@ If you're connecting Vercel to your GitHub repository:
 2. Click **"Add New..."** → **"Project"**
 3. **Import your GitHub repository**
 4. Configure the project:
-   - **Framework Preset**: React (auto-detected)
+   - **Framework Preset**: **Create React App** ⚠️ Select this one!
    - **Root Directory**: `frontend` ⚠️ **IMPORTANT: Set this!**
-   - **Build Command**: `npm run build` (auto-detected)
+   - **Build Command**: `npm run build` (auto-detected after selecting Create React App)
    - **Output Directory**: `build` (auto-detected)
    - **Install Command**: `npm install` (auto-detected)
 
@@ -115,6 +118,7 @@ When prompted:
 - **What's your project's name?** → `plaid-financial-system-frontend`
 - **In which directory is your code located?** → `./` (since you're already in frontend)
 - **Want to override the settings?** → Yes
+  - **Framework Preset**: Create React App
   - **Root Directory**: `./` (you're already in frontend)
   - **Build Command**: `npm run build`
   - **Output Directory**: `build`
@@ -231,6 +235,48 @@ Once your frontend is deployed:
 6. Save and redeploy
 
 **Why this works**: The Root Directory tells Render where your frontend code lives. Once set, all paths are relative to that directory.
+
+### Error: "Exited with status 254" (Build Failed)
+
+**Problem**: Build process is failing
+
+**Common Causes & Solutions**:
+
+1. **Missing Environment Variables**
+   - Go to Render → Your Static Site → Environment
+   - Add ALL required variables:
+     ```
+     REACT_APP_API_BASE=https://plaid-financial-system-api.onrender.com
+     REACT_APP_SUPABASE_URL=https://your-project.supabase.co
+     REACT_APP_SUPABASE_ANON_KEY=your_anon_key_here
+     ```
+   - Redeploy after adding variables
+
+2. **Check Build Logs**
+   - In Render, click on the failed deployment
+   - Scroll to see the actual error message
+   - Look for specific errors like:
+     - "Cannot find module"
+     - "SyntaxError"
+     - "Missing environment variable"
+
+3. **Node Version Mismatch**
+   - In Render settings, check **"Node Version"**
+   - Set to: `18.x` or `20.x` (React Scripts 5.0.1 works with Node 14+)
+   - Or add to `frontend/package.json`:
+     ```json
+     "engines": {
+       "node": ">=18.0.0"
+     }
+     ```
+
+4. **Clear Build Cache**
+   - In Render, go to your Static Site
+   - Click **"Manual Deploy"** → **"Clear build cache & deploy"**
+
+5. **Verify Root Directory**
+   - Make sure **Root Directory** is set to: `frontend`
+   - Not `./frontend` or `/frontend`, just `frontend`
 
 ### CORS Errors
 

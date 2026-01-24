@@ -2,20 +2,10 @@ const moment = require('moment');
 const Client = require('../models-supabase/Client');
 const BalanceSheet = require('../models-supabase/BalanceSheet');
 const TransactionProcessor = require('./transactionProcessor');
-const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
+const { createPlaidClient } = require('../utils/plaidConfig');
 
 // Initialize Plaid client
-const configuration = new Configuration({
-  basePath: PlaidEnvironments[process.env.PLAID_ENV] || PlaidEnvironments.sandbox,
-  baseOptions: {
-    headers: {
-      'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
-      'PLAID-SECRET': process.env.PLAID_SECRET,
-    },
-  },
-});
-
-const plaidClient = new PlaidApi(configuration);
+const plaidClient = createPlaidClient();
 
 /**
  * Get current account balances from Plaid for a client

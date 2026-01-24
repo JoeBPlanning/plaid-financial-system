@@ -54,6 +54,7 @@ function TransactionReview({ client, onComplete }) {
 
   useEffect(() => {
     loadTransactions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, selectedMonth]);
 
   const loadTransactions = async () => {
@@ -101,7 +102,7 @@ function TransactionReview({ client, onComplete }) {
         isReviewed: true // Always mark as reviewed when saving (user has reviewed the transaction)
       }));
 
-      const response = await axiosInstance.post(`/api/clients/${client.clientId}/update-transaction-categories`, {
+      await axiosInstance.post(`/api/clients/${client.clientId}/update-transaction-categories`, {
         transactions: updatedTransactions,
         month: selectedMonth
       });
@@ -556,6 +557,7 @@ function TransactionReview({ client, onComplete }) {
                   {(() => {
                     const isTransfer = isTransactionTransfer(transaction);
                     const isIncome = isTransactionIncome(transaction);
+                    // eslint-disable-next-line no-unused-vars
                     const isExpense = !isTransfer && !isIncome;
                     
                     if (isTransfer) {

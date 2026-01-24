@@ -95,7 +95,7 @@ app.use('/api', webhookRoutes);
 app.use(apiLimiter);
 
 // Plaid configuration
-const { createPlaidClient, getPlaidEnvironment } = require('./utils/plaidConfig');
+const { createPlaidClient, getPlaidEnvironment } = require('./plaidConfig');
 const plaidBasePath = getPlaidEnvironment();
 console.log(`🔧 Plaid Environment: ${process.env.PLAID_ENV || 'sandbox'} (basePath: ${plaidBasePath})`);
 const plaidClient = createPlaidClient();

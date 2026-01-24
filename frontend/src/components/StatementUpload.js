@@ -21,6 +21,7 @@ const StatementUpload = ({ client }) => {
     if (client) {
       loadDocuments();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client]);
 
   const loadDocuments = async () => {
@@ -108,7 +109,7 @@ const StatementUpload = ({ client }) => {
 
       // Upload to Supabase Storage
       setUploadProgress(30);
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('client-statements')
         .upload(filePath, file, {
           cacheControl: '3600',
@@ -121,7 +122,7 @@ const StatementUpload = ({ client }) => {
 
       // Create document record in database via API
       setUploadProgress(60);
-      const response = await axios.post(
+      await axios.post(
         `${API_BASE}/api/clients/${client.clientId}/upload-statement`,
         {
           filename: fileName,

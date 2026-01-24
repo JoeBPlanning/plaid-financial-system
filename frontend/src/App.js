@@ -41,19 +41,44 @@ axiosInstance.interceptors.request.use(async (config) => {
 axiosInstance.interceptors.response.use(
   (response) => response,
   async (error) => {
-    if (error.response?.status === 403 || error.response?.status === 401) {
+    if (error.response?.status === 401) {
       // Log the error for debugging
       console.error('Auth error from backend:', error.response?.data || error.message);
       console.error('Failed URL:', error.config?.url);
 
-      // Only sign out for actual auth failures, not missing data
+      // Try to refresh the session token
+      try {
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        if (currentSession?.refresh_token) {
+          // Refresh the session using the refresh token
+          const { data: { session: newSession }, error: refreshError } = await supabase.auth.refreshSession({
+            refresh_token: currentSession.refresh_token
+          });
+          if (!refreshError && newSession?.access_token) {
+            // Retry the request with the new token
+            error.config.headers.Authorization = `Bearer ${newSession.access_token}`;
+            return axiosInstance.request(error.config);
+          }
+        }
+      } catch (refreshError) {
+        console.error('Failed to refresh session:', refreshError);
+      }
+
+      // If refresh failed or it's not a token issue, sign out
+      // Don't sign out for transactions/summaries endpoints - they might just have no data
       if (!error.config?.url?.includes('/summaries') &&
           !error.config?.url?.includes('/transactions') &&
-          !error.config?.url?.includes('/process-transactions')) {
+          !error.config?.url?.includes('/process-transactions') &&
+          !error.config?.url?.includes('/statements')) {
         await signOut();
         window.location.href = '/';
       }
     }
+    
+    if (error.response?.status === 403) {
+      console.error('Access denied:', error.response?.data);
+    }
+    
     return Promise.reject(error);
   }
 );

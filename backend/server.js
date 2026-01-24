@@ -388,9 +388,9 @@ app.get('/api/admin/summaries/:clientId', requireAuth, async (req, res) => {
       return res.status(404).json({ success: false, error: 'Client not found' });
     }
 
-    const summaries = await MonthlySummary.find({ clientId })
-      .sort({ date: -1 })
-      .limit(24); // Last 2 years
+    // MonthlySummary.find() already orders by date descending
+    const allSummaries = await MonthlySummary.find({ clientId });
+    const summaries = allSummaries.slice(0, 24); // Last 2 years
 
     res.json({
       success: true,
@@ -2551,9 +2551,11 @@ app.get('/api/clients/:clientId/summaries', requireAuth, ensureClientOwnership, 
     const clientId = req.user.clientId;
     const { limit = 12 } = req.query;
     
-    const summaries = await MonthlySummary.find({ clientId })
-      .sort({ date: -1 })
-      .limit(parseInt(limit));
+    // MonthlySummary.find() already orders by date descending
+    const allSummaries = await MonthlySummary.find({ clientId });
+    
+    // Apply limit manually (MonthlySummary.find doesn't support limit parameter yet)
+    const summaries = allSummaries.slice(0, parseInt(limit));
     
     res.json({
       success: true,

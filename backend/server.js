@@ -1534,8 +1534,12 @@ app.get('/api/clients/:clientId/statements', requireAuth, ensureClientOwnership,
   try {
     const clientId = req.user.clientId;
 
+    // Use getDatabase() to ensure proper Supabase client initialization
+    const { getDatabase } = require('./database-supabase');
+    const supabaseClient = getDatabase();
+
     // Get documents from Supabase
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('documents')
       .select('*')
       .eq('client_id', clientId)
@@ -1543,7 +1547,11 @@ app.get('/api/clients/:clientId/statements', requireAuth, ensureClientOwnership,
 
     if (error) {
       console.error('Error fetching documents:', error);
-      return res.status(500).json({ error: 'Failed to fetch documents' });
+      return res.status(500).json({ 
+        success: false,
+        error: 'Failed to fetch documents',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
 
     res.json({
@@ -1552,7 +1560,11 @@ app.get('/api/clients/:clientId/statements', requireAuth, ensureClientOwnership,
     });
   } catch (error) {
     console.error('Get statements error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ 
+      success: false,
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 

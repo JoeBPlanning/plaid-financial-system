@@ -54,44 +54,64 @@ axiosInstance.interceptors.response.use(
       console.error('Auth error from backend:', error.response?.data || error.message);
       console.error('Failed URL:', error.config?.url);
 
+      // Don't retry if this is already a retry to avoid infinite loops
+      if (error.config._retry) {
+        console.error('Token refresh already attempted, rejecting request');
+        // For critical endpoints, sign out if refresh failed
+        const criticalEndpoints = ['/transactions', '/process-transactions', '/statements'];
+        const isCritical = criticalEndpoints.some(endpoint => error.config?.url?.includes(endpoint));
+        if (isCritical) {
+          console.error('Critical endpoint failed after token refresh, signing out');
+          await signOut();
+          window.location.href = '/';
+        }
+        return Promise.reject(error);
+      }
+
       // Try to refresh the session token
       try {
-        // Get current session - Supabase auto-refreshes if needed
+        // First, try to get current session (Supabase auto-refreshes if needed)
         const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
         
         if (sessionError) {
           console.error('Session error:', sessionError);
+          // If we have a refresh token, try manual refresh
+          const { data: { session: lastSession } } = await supabase.auth.getSession();
+          if (lastSession?.refresh_token) {
+            const { data: { session: newSession }, error: refreshError } = await supabase.auth.refreshSession({
+              refresh_token: lastSession.refresh_token
+            });
+            if (!refreshError && newSession?.access_token) {
+              error.config.headers.Authorization = `Bearer ${newSession.access_token}`;
+              error.config._retry = true;
+              return axiosInstance.request(error.config);
+            }
+          }
         } else if (currentSession?.access_token) {
           // Retry the request with the current (potentially refreshed) token
           error.config.headers.Authorization = `Bearer ${currentSession.access_token}`;
-          // Don't retry if this is already a retry to avoid infinite loops
-          if (!error.config._retry) {
-            error.config._retry = true;
-            return axiosInstance.request(error.config);
-          }
+          error.config._retry = true;
+          return axiosInstance.request(error.config);
         } else if (currentSession?.refresh_token) {
-          // Try to refresh manually if we have a refresh token
+          // Try to refresh manually if we have a refresh token but no access token
           const { data: { session: newSession }, error: refreshError } = await supabase.auth.refreshSession({
             refresh_token: currentSession.refresh_token
           });
           if (!refreshError && newSession?.access_token) {
             error.config.headers.Authorization = `Bearer ${newSession.access_token}`;
-            if (!error.config._retry) {
-              error.config._retry = true;
-              return axiosInstance.request(error.config);
-            }
+            error.config._retry = true;
+            return axiosInstance.request(error.config);
           }
         }
       } catch (refreshError) {
         console.error('Failed to refresh session:', refreshError);
       }
 
-      // If refresh failed or it's not a token issue, sign out
-      // Don't sign out for transactions/summaries endpoints - they might just have no data
-      if (!error.config?.url?.includes('/summaries') &&
-          !error.config?.url?.includes('/transactions') &&
-          !error.config?.url?.includes('/process-transactions') &&
-          !error.config?.url?.includes('/statements')) {
+      // If refresh failed, sign out for critical endpoints
+      const criticalEndpoints = ['/transactions', '/process-transactions', '/statements'];
+      const isCritical = criticalEndpoints.some(endpoint => error.config?.url?.includes(endpoint));
+      if (isCritical) {
+        console.error('Token refresh failed for critical endpoint, signing out');
         await signOut();
         window.location.href = '/';
       }

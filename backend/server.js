@@ -2010,10 +2010,15 @@ app.post('/api/clients/:clientId/plaid-token', requireAuth, ensureClientOwnershi
       totalConnections: client.plaidAccessTokens?.length || 1
     });
   } catch (error) {
-    console.error('Error saving Plaid token:', error);
+    console.error('Error saving Plaid token:', {
+      message: error.message,
+      stack: error.stack,
+      body: req.body,
+      clientId
+    });
     res.status(500).json({ 
-      error: error.message,
-      details: error.stack // Include stack trace for debugging
+      error: error.message || 'Failed to save Plaid token',
+      details: process.env.NODE_ENV === 'production' ? undefined : error.stack
     });
   }
 });

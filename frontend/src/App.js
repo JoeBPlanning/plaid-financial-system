@@ -62,46 +62,57 @@ axiosInstance.interceptors.response.use(
         const isCritical = criticalEndpoints.some(endpoint => error.config?.url?.includes(endpoint));
         if (isCritical) {
           console.error('Critical endpoint failed after token refresh, signing out');
-          await signOut();
-          window.location.href = '/';
+          try {
+            await signOut();
+            window.location.href = '/';
+          } catch (signOutError) {
+            console.error('Error signing out:', signOutError);
+          }
         }
         return Promise.reject(error);
       }
 
       // Try to refresh the session token
       try {
-        // First, try to get current session (Supabase auto-refreshes if needed)
+        console.log('Attempting to refresh token...');
+        
+        // Get current session - Supabase should auto-refresh if needed
         const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
         
         if (sessionError) {
           console.error('Session error:', sessionError);
-          // If we have a refresh token, try manual refresh
-          const { data: { session: lastSession } } = await supabase.auth.getSession();
-          if (lastSession?.refresh_token) {
-            const { data: { session: newSession }, error: refreshError } = await supabase.auth.refreshSession({
-              refresh_token: lastSession.refresh_token
-            });
-            if (!refreshError && newSession?.access_token) {
-              error.config.headers.Authorization = `Bearer ${newSession.access_token}`;
-              error.config._retry = true;
-              return axiosInstance.request(error.config);
-            }
-          }
-        } else if (currentSession?.access_token) {
-          // Retry the request with the current (potentially refreshed) token
-          error.config.headers.Authorization = `Bearer ${currentSession.access_token}`;
-          error.config._retry = true;
-          return axiosInstance.request(error.config);
-        } else if (currentSession?.refresh_token) {
-          // Try to refresh manually if we have a refresh token but no access token
-          const { data: { session: newSession }, error: refreshError } = await supabase.auth.refreshSession({
+        }
+        
+        let newAccessToken = null;
+        
+        // If we have a valid session with access token, use it
+        if (currentSession?.access_token) {
+          console.log('Using current session access token');
+          newAccessToken = currentSession.access_token;
+        } 
+        // If we have a refresh token but no access token, try to refresh
+        else if (currentSession?.refresh_token) {
+          console.log('Attempting manual token refresh...');
+          const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession({
             refresh_token: currentSession.refresh_token
           });
-          if (!refreshError && newSession?.access_token) {
-            error.config.headers.Authorization = `Bearer ${newSession.access_token}`;
-            error.config._retry = true;
-            return axiosInstance.request(error.config);
+          
+          if (refreshError) {
+            console.error('Token refresh error:', refreshError);
+          } else if (refreshedSession?.access_token) {
+            console.log('Token refreshed successfully');
+            newAccessToken = refreshedSession.access_token;
           }
+        }
+        
+        // If we got a new token, retry the request
+        if (newAccessToken) {
+          console.log('Retrying request with new token');
+          error.config.headers.Authorization = `Bearer ${newAccessToken}`;
+          error.config._retry = true;
+          return axiosInstance.request(error.config);
+        } else {
+          console.error('No valid token available after refresh attempt');
         }
       } catch (refreshError) {
         console.error('Failed to refresh session:', refreshError);
@@ -112,8 +123,12 @@ axiosInstance.interceptors.response.use(
       const isCritical = criticalEndpoints.some(endpoint => error.config?.url?.includes(endpoint));
       if (isCritical) {
         console.error('Token refresh failed for critical endpoint, signing out');
-        await signOut();
-        window.location.href = '/';
+        try {
+          await signOut();
+          window.location.href = '/';
+        } catch (signOutError) {
+          console.error('Error signing out:', signOutError);
+        }
       }
     }
     

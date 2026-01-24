@@ -30,9 +30,17 @@ const axiosInstance = axios.create({
 
 // Add Supabase auth token to all requests
 axiosInstance.interceptors.request.use(async (config) => {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session?.access_token) {
-    config.headers.Authorization = `Bearer ${session.access_token}`;
+  try {
+    // Get fresh session (Supabase auto-refreshes expired tokens)
+    const { data: { session }, error } = await supabase.auth.getSession();
+    if (error) {
+      console.error('Error getting session:', error);
+    }
+    if (session?.access_token) {
+      config.headers.Authorization = `Bearer ${session.access_token}`;
+    }
+  } catch (error) {
+    console.error('Error in request interceptor:', error);
   }
   return config;
 });
@@ -48,16 +56,30 @@ axiosInstance.interceptors.response.use(
 
       // Try to refresh the session token
       try {
-        const { data: { session: currentSession } } = await supabase.auth.getSession();
-        if (currentSession?.refresh_token) {
-          // Refresh the session using the refresh token
+        // Get current session - Supabase auto-refreshes if needed
+        const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.error('Session error:', sessionError);
+        } else if (currentSession?.access_token) {
+          // Retry the request with the current (potentially refreshed) token
+          error.config.headers.Authorization = `Bearer ${currentSession.access_token}`;
+          // Don't retry if this is already a retry to avoid infinite loops
+          if (!error.config._retry) {
+            error.config._retry = true;
+            return axiosInstance.request(error.config);
+          }
+        } else if (currentSession?.refresh_token) {
+          // Try to refresh manually if we have a refresh token
           const { data: { session: newSession }, error: refreshError } = await supabase.auth.refreshSession({
             refresh_token: currentSession.refresh_token
           });
           if (!refreshError && newSession?.access_token) {
-            // Retry the request with the new token
             error.config.headers.Authorization = `Bearer ${newSession.access_token}`;
-            return axiosInstance.request(error.config);
+            if (!error.config._retry) {
+              error.config._retry = true;
+              return axiosInstance.request(error.config);
+            }
           }
         }
       } catch (refreshError) {

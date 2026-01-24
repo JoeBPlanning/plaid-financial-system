@@ -171,20 +171,53 @@ class Client {
   static async addPlaidTokenToClient(clientId, tokenData) {
     const supabase = getDatabase();
 
-    const { error } = await supabase
+    // Check if connection already exists for this item_id
+    const { data: existing } = await supabase
       .from('plaid_connections')
-      .insert([{
-        client_id: clientId,
-        access_token: encryptPlaidToken(tokenData.accessToken), // Encrypt before storing
-        item_id: tokenData.itemId,
-        institution_name: tokenData.institutionName,
-        institution_id: tokenData.institutionId,
-        account_ids: tokenData.accountIds || [],
-        is_active: tokenData.isActive !== undefined ? tokenData.isActive : true,
-        transaction_cursor: tokenData.transactionCursor || null
-      }]);
+      .select('id')
+      .eq('client_id', clientId)
+      .eq('item_id', tokenData.itemId)
+      .single();
 
-    if (error) throw error;
+    if (existing) {
+      // Update existing connection
+      const { error: updateError } = await supabase
+        .from('plaid_connections')
+        .update({
+          access_token: encryptPlaidToken(tokenData.accessToken),
+          institution_name: tokenData.institutionName,
+          institution_id: tokenData.institutionId,
+          account_ids: tokenData.accountIds || [],
+          is_active: tokenData.isActive !== undefined ? tokenData.isActive : true,
+          transaction_cursor: tokenData.transactionCursor || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existing.id);
+
+      if (updateError) {
+        console.error('Error updating Plaid connection:', updateError);
+        throw updateError;
+      }
+    } else {
+      // Insert new connection
+      const { error: insertError } = await supabase
+        .from('plaid_connections')
+        .insert([{
+          client_id: clientId,
+          access_token: encryptPlaidToken(tokenData.accessToken), // Encrypt before storing
+          item_id: tokenData.itemId,
+          institution_name: tokenData.institutionName,
+          institution_id: tokenData.institutionId,
+          account_ids: tokenData.accountIds || [],
+          is_active: tokenData.isActive !== undefined ? tokenData.isActive : true,
+          transaction_cursor: tokenData.transactionCursor || null
+        }]);
+
+      if (insertError) {
+        console.error('Error inserting Plaid connection:', insertError);
+        throw insertError;
+      }
+    }
 
     return this.findOne({ clientId });
   }

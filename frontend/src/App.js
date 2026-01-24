@@ -697,7 +697,10 @@ function App() {
       
     } catch (error) {
       console.error('Error handling Plaid success:', error);
-      alert('Failed to complete bank connection. Please try again.');
+      const errorMessage = error.response?.data?.error || error.message || 'Unknown error';
+      const errorDetails = error.response?.data?.details || error.response?.data?.hint || '';
+      console.error('Full error response:', error.response?.data);
+      alert(`Failed to complete bank connection: ${errorMessage}${errorDetails ? `\n\nDetails: ${errorDetails}` : ''}`);
     }
     setLoading(false);
   };

@@ -1581,7 +1581,7 @@ app.get('/api/clients/:clientId/statements', requireAuth, ensureClientOwnership,
       .from('documents')
       .select('*')
       .eq('client_id', clientId)
-      .order('upload_date', { ascending: false });
+      .order('created_at', { ascending: false });
 
     if (error) {
       console.error('Error fetching documents:', error);
@@ -2014,12 +2014,26 @@ app.post('/api/clients/:clientId/plaid-token', requireAuth, ensureClientOwnershi
       message: error.message,
       stack: error.stack,
       body: req.body,
-      clientId
+      clientId,
+      errorCode: error.code,
+      errorDetails: error.details,
+      errorHint: error.hint
     });
-    res.status(500).json({ 
+    
+    // Return more detailed error information
+    const errorResponse = {
       error: error.message || 'Failed to save Plaid token',
-      details: process.env.NODE_ENV === 'production' ? undefined : error.stack
-    });
+      code: error.code,
+      details: error.details,
+      hint: error.hint
+    };
+    
+    // Include stack trace in non-production
+    if (process.env.NODE_ENV !== 'production') {
+      errorResponse.stack = error.stack;
+    }
+    
+    res.status(500).json(errorResponse);
   }
 });
 

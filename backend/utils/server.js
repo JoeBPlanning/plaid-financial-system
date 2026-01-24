@@ -1574,7 +1574,7 @@ app.get('/api/clients/:clientId/statements', requireAuth, ensureClientOwnership,
       .from('documents')
       .select('*')
       .eq('client_id', clientId)
-      .order('upload_date', { ascending: false });
+      .order('created_at', { ascending: false });
 
     if (error) {
       console.error('Error fetching documents:', error);

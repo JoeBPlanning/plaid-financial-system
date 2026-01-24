@@ -149,9 +149,19 @@ axiosInstance.interceptors.response.use(
           error.config._retry = true;
           // Clear any cached response
           delete error.config.transformRequest;
+          // Small delay to ensure token is fully propagated
+          await new Promise(resolve => setTimeout(resolve, 100));
           return axiosInstance.request(error.config);
         } else {
           console.error('No valid token available after refresh attempt');
+          // Try one more time to get session - sometimes Supabase needs a moment
+          const { data: { session: finalSession } } = await supabase.auth.getSession();
+          if (finalSession?.access_token) {
+            console.log('Got token on second attempt, retrying...');
+            error.config.headers.Authorization = `Bearer ${finalSession.access_token}`;
+            error.config._retry = true;
+            return axiosInstance.request(error.config);
+          }
         }
       } catch (refreshError) {
         console.error('Failed to refresh session:', refreshError);

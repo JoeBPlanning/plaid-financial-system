@@ -145,9 +145,11 @@ router.get('/:clientId/summaries', requireAuth, ensureClientOwnership, async (re
       query.year = parseInt(year);
     }
     
-    const summaries = await MonthlySummary.find(query)
-      .sort({ year: -1, month: -1 })
-      .limit(parseInt(limit));
+    // MonthlySummary.find() already orders by date descending
+    const allSummaries = await MonthlySummary.find(query);
+    
+    // Apply limit manually (MonthlySummary.find doesn't support limit parameter yet)
+    const summaries = allSummaries.slice(0, parseInt(limit));
     
     res.json({ summaries });
   } catch (error) {

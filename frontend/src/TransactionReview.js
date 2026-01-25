@@ -225,150 +225,28 @@ function TransactionReview({ client, onComplete }) {
   // - Credit accounts: positive = charge (expense), negative = payment (expense for cash flow)
   // - Depository accounts: positive = credit/deposit (income), negative = debit/withdrawal (expense)
   // - Loan accounts: positive = loan disbursement (income), negative = payment (expense)
-  // BUT: Plaid sometimes returns expenses as positive amounts, so we need to check categories too
+  // Per user request, this has been simplified to follow the Plaid standard:
+  // Negative amount = Inflow (Income)
+  // Positive amount = Outflow (Expense)
   const isTransactionIncome = (transaction) => {
-    // If it's a transfer, it's neither income nor expense
+    const name = (transaction.name || transaction.merchantName || '').toLowerCase();
+    const amount = transaction.amount;
+
+    // First, check if it's a transfer, which is neither income nor expense.
     if (isTransactionTransfer(transaction)) {
       return null; // Return null to indicate it's a transfer
     }
-    const accountType = transaction.accountType;
-    const amount = transaction.amount;
-    const name = (transaction.name || transaction.merchantName || '').toLowerCase();
-    
-    // Check Plaid's personal finance category first (most reliable)
-    const pfc = transaction.personalFinanceCategory;
-    if (pfc && pfc.primary) {
-      const primary = pfc.primary.toLowerCase();
-      // Income categories
-      if (primary.includes('income') || primary.includes('salary') || 
-          primary.includes('wage') || primary.includes('dividend') ||
-          primary.includes('interest') || primary.includes('deposit')) {
-        return true;
-      }
-      // Transfer categories - these are neither income nor expense in traditional sense
-      // TRANSFER_OUT from checking = money leaving (expense for cash flow)
-      // TRANSFER_IN to checking = money coming in (income for cash flow)
-      if (primary.includes('transfer_out')) {
-        // Money leaving account = expense from cash flow perspective
-        return false;
-      }
-      if (primary.includes('transfer_in')) {
-        // Money coming into account = income from cash flow perspective
-        return true;
-      }
-      // Loan payments - paying off debt (expense for cash flow, but not a new expense)
-      if (primary.includes('loan_payment')) {
-        // From checking account perspective, this is money leaving = expense
-        // But it's paying off existing debt, not a new purchase
-        return false; // Treat as expense for cash flow, but could be excluded from spending analysis
-      }
-      // Expense categories - definitely not income
-      if (primary.includes('food') || primary.includes('restaurant') ||
-          primary.includes('dining') || primary.includes('groceries') ||
-          primary.includes('transport') || primary.includes('travel') ||
-          primary.includes('entertainment') || primary.includes('shopping') ||
-          primary.includes('general_merchandise') || primary.includes('gas_stations')) {
-        return false;
-      }
+
+    // Handle Zelle transactions explicitly.
+    // A negative amount from Zelle is an inflow (income).
+    if (name.includes('zelle') && amount < 0) {
+      return true; // Explicitly income
     }
-    
-    // Check Plaid category array
-    const plaidCategory = transaction.plaidCategory || (transaction.category && transaction.category[0]) || '';
-    if (plaidCategory) {
-      const cat = plaidCategory.toLowerCase();
-      // Income categories
-      if (cat.includes('transfer') && name.includes('deposit')) {
-        return true;
-      }
-      // Expense categories
-      if (cat.includes('food') || cat.includes('restaurant') || cat.includes('dining') ||
-          cat.includes('gas') || cat.includes('transport') || cat.includes('travel') ||
-          cat.includes('entertainment') || cat.includes('shopping') || cat.includes('general')) {
-        return false;
-      }
-    }
-    
-    // Known expense merchants (even if positive amount from checking)
-    const expenseMerchants = [
-      'mcdonald', 'starbucks', 'kfc', 'burger', 'pizza', 'restaurant',
-      'uber', 'lyft', 'taxi', 'gas', 'shell', 'chevron', 'exxon',
-      'walmart', 'target', 'amazon', 'shop', 'store', 'market',
-      'hotel', 'airline', 'united', 'delta', 'american',
-      'netflix', 'spotify', 'subscription', 'payment', 'charge',
-      'purchase', 'bicycle', 'climbing', 'gym', 'fitness'
-    ];
-    
-    for (const merchant of expenseMerchants) {
-      if (name.includes(merchant)) {
-        return false; // Definitely an expense
-      }
-    }
-    
-    // Special case: Credit card payments from checking/savings accounts
-    // These are transfers/debt payments - money leaving the account
-    // Accounting perspective: Not a new expense (the expense was the original charge)
-    // Cash flow perspective: Money leaving = expense for cash flow tracking
-    // Plaid categorizes these as TRANSFER_OUT or LOAN_PAYMENTS
-    if (name.includes('credit card') && name.includes('payment')) {
-      // Credit card payments are always expenses from cash flow perspective
-      // (money leaving checking/savings to pay debt)
-      // Note: The actual spending expense was the original charge on the credit card
-      // This payment is just settling that debt, so it could be excluded from spending analysis
-      return false; // Expense for cash flow, but conceptually a transfer/debt payment
-    }
-    
-    // If accountType is not available, try to infer from transaction name
-    if (!accountType) {
-      // Common patterns for expenses that might show as positive
-      if (name.includes('payment') || name.includes('charge') || 
-          name.includes('purchase') || name.includes('withdrawal')) {
-        return false; // Likely an expense
-      }
-      // Common patterns for income
-      if (name.includes('deposit') || name.includes('salary') || 
-          name.includes('wage') || name.includes('payroll') ||
-          name.includes('interest') || name.includes('dividend')) {
-        return true; // Likely income
-      }
-      // Default fallback: positive = income, negative = expense
-      return amount > 0;
-    }
-    
-    if (accountType === 'credit') {
-      // Credit cards: ALL transactions are expenses (positive = charge, negative = payment)
-      return false;
-    } else if (accountType === 'depository') {
-      // Checking/savings: 
-      // - Negative amounts are always expenses
-      // - Positive amounts are usually income, BUT check merchant/category first
-      if (amount < 0) {
-        return false; // Negative = expense
-      }
-      
-      // For positive amounts from checking, check if it's a known expense merchant
-      // or has expense categories (could be a refund or data structure issue)
-      const hasExpenseIndicator = expenseMerchants.some(m => name.includes(m)) ||
-                                  (pfc && pfc.primary && (
-                                    pfc.primary.toLowerCase().includes('food') ||
-                                    pfc.primary.toLowerCase().includes('restaurant') ||
-                                    pfc.primary.toLowerCase().includes('dining') ||
-                                    pfc.primary.toLowerCase().includes('payment') ||
-                                    pfc.primary.toLowerCase().includes('transfer_out')
-                                  ));
-      
-      if (hasExpenseIndicator) {
-        return false; // Positive amount but expense merchant/category = expense
-      }
-      
-      // Positive amounts without expense indicators = likely income
-      return true;
-    } else if (accountType === 'loan') {
-      // Loans: positive = loan received (income), negative = payment (expense)
-      return amount > 0;
-    } else {
-      // Default: positive = income, negative = expense
-      return amount > 0;
-    }
+
+    // Apply the standard Plaid logic for all other transactions.
+    // A negative amount represents an inflow of money (income).
+    // A positive amount represents an outflow of money (expense).
+    return amount < 0;
   };
 
   // Filter transactions based on current filter and search
@@ -576,7 +454,7 @@ function TransactionReview({ client, onComplete }) {
                           fontWeight: 'bold', 
                           fontSize: '16px',
                           color: isIncome ? '#28a745' : '#dc3545'
-                        }}>
+                        }}> 
                           {isIncome ? '+' : ''}{formatCurrency(Math.abs(transaction.amount))}
                         </div>
                         <div style={{ fontSize: '12px', color: isIncome ? '#28a745' : '#dc3545' }}>

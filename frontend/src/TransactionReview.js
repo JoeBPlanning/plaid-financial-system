@@ -61,7 +61,29 @@ function TransactionReview({ client, onComplete }) {
       setTransactions(response.data.transactions.map(t => ({
         ...t,
         finalCategory: t.userCategory || t.suggestedCategory,
-        // Ensure isReviewed is properly set based on whether userCategory exists
+        // Apply new income/transfer logic to set default finalCategory if not already set by user
+        ...(() => {
+          const isTransfer = isTransactionTransfer(t);
+          const isIncome = isTransactionIncome(t); // This will be true, false, or null
+
+          let defaultSuggestedCategory = t.suggestedCategory;
+          if (isTransfer) {
+            defaultSuggestedCategory = 'transfers'; // Use the existing 'transfers' category for transfers
+          } else if (isIncome === true) {
+            const name = (t.name || t.merchantName || '').toLowerCase();
+            if (name.includes('stripe') || name.includes('square') || name.includes('paypal')) {
+              defaultSuggestedCategory = 'business'; // Assuming these are business-related inflows
+            } else if (name.includes('electronic deposit') || name.includes('zelle')) {
+              defaultSuggestedCategory = 'other'; // General income, user can refine
+            } else {
+              defaultSuggestedCategory = 'salary'; // Default for other income
+            }
+          } else if (isIncome === false) { // It's an expense
+            defaultSuggestedCategory = t.suggestedCategory || 'uncategorized';
+          }
+          return { finalCategory: t.userCategory || defaultSuggestedCategory };
+        })(),
+        // Ensure isReviewed is properly set based on whether userCategory exists or is newly assigned
         isReviewed: t.isReviewed !== undefined ? t.isReviewed : (t.userCategory ? true : false)
       })));
     } catch (error) {
@@ -237,6 +259,26 @@ function TransactionReview({ client, onComplete }) {
       return null; // Return null to indicate it's a transfer
     }
 
+    // Handle explicit income keywords for inflows (negative amount in Plaid)
+    // Plaid standard: negative is inflow
+    const isPlaidInflow = amount < 0;
+
+    // Keyword Overrides: Stripe, Square, PayPal
+    if (isPlaidInflow && (name.includes('stripe') || name.includes('square') || name.includes('paypal'))) {
+      return true; // Explicitly income
+    }
+
+    // Electronic Deposits:
+    // If it's an inflow and contains 'electronic deposit', it's income.
+    // The "unless it is explicitly a transfer between known linked accounts" part
+    // is handled by calling isTransactionTransfer first. If isTransactionTransfer
+    // already said it's a transfer, we wouldn't reach here.
+    if (isPlaidInflow && name.includes('electronic deposit')) {
+      return true; // Explicitly income
+    }
+
+    // Handle Zelle transactions explicitly (already there)
+    // A negative amount from Zelle is an inflow (income).
     // Handle Zelle transactions explicitly.
     // A negative amount from Zelle is an inflow (income).
     if (name.includes('zelle') && amount < 0) {
@@ -244,9 +286,8 @@ function TransactionReview({ client, onComplete }) {
     }
 
     // Apply the standard Plaid logic for all other transactions.
-    // A negative amount represents an inflow of money (income).
-    // A positive amount represents an outflow of money (expense).
-    return amount < 0;
+    // A negative amount represents an inflow of money (income), positive is outflow (expense).
+    return isPlaidInflow;
   };
 
   // Filter transactions based on current filter and search
@@ -482,11 +523,16 @@ function TransactionReview({ client, onComplete }) {
                       const isIncome = isTransactionIncome(transaction);
                       
                       // For transfers, show all categories (or could show a "Transfer" category)
-                      if (isTransfer) {
+                      if (isTransfer) { // If it's a transfer, default to 'transfers' and show all categories
                         return (
                           <>
                             <option value="uncategorized">Transfer</option>
                             {EXPENSE_CATEGORIES.map(cat => (
+                              <option key={cat.value} value={cat.value}>
+                                {cat.label}
+                              </option>
+                            ))}
+                            {INCOME_CATEGORIES.map(cat => (
                               <option key={cat.value} value={cat.value}>
                                 {cat.label}
                               </option>

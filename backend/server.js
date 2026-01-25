@@ -552,12 +552,13 @@ app.post('/api/admin/regenerate-summary/:clientId', requireAuth, async (req, res
 app.get('/api/clients/:clientId/transactions', requireAuth, ensureClientOwnership, async (req, res) => {
   try {
     // Derive clientId exclusively from authenticated JWT
-    const clientId = req.user.clientId;
-    const { month, months, limit = 100, startDate, endDate } = req.query;
+    const clientId = req.user.clientId; 
+    const { month, months, limit = 100, startDate, endDate, is_reviewed } = req.query;
 
     // Use transactionsSync service to get from database
     const transactions = await transactionsSync.getTransactionsFromDatabase(clientId, {
       month,
+      isReviewed: is_reviewed, // Pass the review status to the database function
       months,
       limit: parseInt(limit),
       startDate,
@@ -594,44 +595,23 @@ app.post('/api/clients/:clientId/update-transaction-categories', requireAuth, en
     }
 
     const updatePromises = transactions.map(({ transactionId, userCategory, isReviewed }) => {
-      try {
-        // Try to find by plaidTransactionId first (most reliable)
-        let existing = Transaction.findOne({ 
-          plaidTransactionId: transactionId,
-          clientId 
-        });
-        
-        // If not found, try by _id (which maps to plaidTransactionId in the model)
-        if (!existing) {
-          existing = Transaction.findOne({ 
-            _id: transactionId,
-            clientId 
-          });
+      // Update the transaction found by its ID for the specific client
+      return Transaction.findOneAndUpdate(
+        {
+          // Search by either the database _id or the plaidTransactionId
+          $or: [{ _id: transactionId }, { plaidTransactionId: transactionId }],
+          clientId: clientId,
+        },
+        {
+          // Set the new category and explicitly update the reviewed status
+          userCategory: userCategory,
+          isReviewed: isReviewed === true, // Ensure it's a boolean true
+        },
+        {
+          new: true, // Return the updated document
+          upsert: false, // Do not create a new one if it doesn't exist
         }
-        
-        if (!existing) {
-          console.warn(`Transaction not found: ${transactionId} for client ${clientId}`);
-          return null;
-        }
-        
-        // Update the transaction
-        const updated = Transaction.findOneAndUpdate(
-          { 
-            plaidTransactionId: existing.plaidTransactionId,
-            clientId 
-          },
-          { 
-            userCategory, 
-            isReviewed: isReviewed !== undefined ? isReviewed : true
-          },
-          { new: true }
-        );
-        
-        return updated;
-      } catch (err) {
-        console.error(`Error updating transaction ${transactionId}:`, err);
-        return null;
-      }
+      );
     });
 
     const results = await Promise.all(updatePromises);

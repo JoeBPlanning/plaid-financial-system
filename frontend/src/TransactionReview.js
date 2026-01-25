@@ -2,12 +2,6 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import config from './config';
 
-// Configure axios to use cookies for authentication
-const axiosInstance = axios.create({
-  baseURL: config.API_BASE,
-  withCredentials: true, // Include cookies in all requests
-});
-
 // Updated categories to match your schema exactly
 const EXPENSE_CATEGORIES = [
   { value: 'housing', label: 'Housing' },
@@ -62,7 +56,7 @@ function TransactionReview({ client, onComplete }) {
     
     setLoading(true);
     try {
-      const response = await axiosInstance.get(
+      const response = await axios.get(
         `/api/clients/${client.clientId}/transactions?month=${selectedMonth}`
       );
       setTransactions(response.data.transactions.map(t => ({
@@ -102,7 +96,7 @@ function TransactionReview({ client, onComplete }) {
         isReviewed: true // Always mark as reviewed when saving (user has reviewed the transaction)
       }));
 
-      await axiosInstance.post(`/api/clients/${client.clientId}/update-transaction-categories`, {
+      await axios.post(`/api/clients/${client.clientId}/update-transaction-categories`, {
         transactions: updatedTransactions,
         month: selectedMonth
       });
@@ -112,7 +106,7 @@ function TransactionReview({ client, onComplete }) {
       
       // Regenerate summary to reflect the updated categories
       try {
-        await axiosInstance.post(`/api/process-transactions/${client.clientId}`, {
+        await axios.post(`/api/process-transactions/${client.clientId}`, {
           targetMonth: selectedMonth,
           useUserCategories: true
         });
@@ -137,7 +131,7 @@ function TransactionReview({ client, onComplete }) {
     
     setLoading(true);
     try {
-      const response = await axiosInstance.post(`/api/clients/${client.clientId}/refresh-transactions`, {
+      const response = await axios.post(`/api/clients/${client.clientId}/refresh-transactions`, {
         month: selectedMonth
       });
       
@@ -171,7 +165,7 @@ function TransactionReview({ client, onComplete }) {
         isReviewed: true
       }));
 
-      await axiosInstance.post(`/api/clients/${client.clientId}/update-transaction-categories`, {
+      await axios.post(`/api/clients/${client.clientId}/update-transaction-categories`, {
         transactions: updatedTransactions,
         month: selectedMonth
       });

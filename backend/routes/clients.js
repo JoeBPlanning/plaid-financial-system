@@ -139,20 +139,21 @@ router.get('/:clientId/summaries', requireAuth, ensureClientOwnership, async (re
     // Derive clientId exclusively from authenticated JWT
     const clientId = req.user.clientId;
     const { year, limit = 12 } = req.query;
-    
+
     let query = { clientId };
     if (year) {
       query.year = parseInt(year);
     }
-    
+
     // MonthlySummary.find() already orders by date descending
     const allSummaries = await MonthlySummary.find(query);
-    
+
     // Apply limit manually (MonthlySummary.find doesn't support limit parameter yet)
-    const summaries = allSummaries.slice(0, parseInt(limit));
-    
+    const summaries = (allSummaries || []).slice(0, parseInt(limit));
+
     res.json({ summaries });
   } catch (error) {
+    console.error('Error fetching summaries:', error);
     res.status(500).json({ error: error.message });
   }
 });

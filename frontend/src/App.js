@@ -73,8 +73,9 @@ axiosInstance.interceptors.request.use(async (config) => {
 // Helper function to check if token is expired
 function isTokenExpired(expiresAt) {
   if (!expiresAt) return true;
-  // Add 60 second buffer to refresh before actual expiration
-  const expirationTime = new Date(expiresAt).getTime() - 60000;
+  // Supabase returns expires_at as Unix timestamp in SECONDS, not milliseconds
+  // Convert to milliseconds and add 60 second buffer to refresh before actual expiration
+  const expirationTime = expiresAt * 1000 - 60000;
   return Date.now() >= expirationTime;
 }
 

@@ -194,10 +194,18 @@ function App() {
           email: session.user.email
         };
         setClient(clientData);
+        setStep('dashboard'); // Ensure user is on the dashboard
+
+        // Trigger a full data re-fetch for the new user
+        console.log('SIGNED_IN event detected, fetching user data...');
+        await loadMonthlySummary(session.user.id, selectedMonth);
+        await checkUnreviewedTransactions(session.user.id);
+        await loadCurrentNetWorth(session.user.id);
       } else if (event === 'SIGNED_OUT') {
         setSession(null);
         setUser(null);
         setClient(null);
+        setMonthlySummary(null); // Clear stale data
         setStep('login');
       }
     });

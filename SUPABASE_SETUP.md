@@ -185,6 +185,40 @@ In your Supabase dashboard:
 
 ## 9. Testing Checklist
 
+## 9. Auto-Create Client Profile on Sign-Up (IMPORTANT)
+
+To ensure a user profile is created in your `public.clients` table every time a new user signs up, you must create a database trigger.
+
+1.  Go to the **SQL Editor** in your Supabase dashboard.
+2.  Click **"+ New query"**.
+3.  Paste and run the following SQL:
+
+```sql
+-- Creates a function that inserts a new row into public.clients
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  -- Insert a new row into the clients table, using the user's ID and metadata
+  insert into public.clients (client_id, email, name, raw_user_meta_data)
+  values (
+    new.id,
+    new.email,
+    new.raw_user_meta_data ->> 'name',
+    new.raw_user_meta_data
+  );
+  return new;
+end;
+$$;
+
+-- Create the trigger that fires after a new user is inserted into auth.users
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
+```
+
 - [ ] Frontend environment variables are set
 - [ ] Backend environment variables are set
 - [ ] Dependencies are installed

@@ -144,7 +144,7 @@ function TransactionReview({ client, onComplete }) {
     }));
   };
 
-  const saveCategories = async () => {
+  const saveAndReviewAll = async () => {
     setSaving(true);
     try {
       // Silently create/update rules for manually changed transactions
@@ -170,8 +170,8 @@ function TransactionReview({ client, onComplete }) {
         }
       }
 
-      // Include ALL transactions, marking them as reviewed if they have a category
-      const updatedTransactions = transactions.map(t => ({
+      // Prepare all transactions in the current view to be marked as reviewed
+      const updatedTransactions = filteredTransactions.map(t => ({
         transactionId: t._id || t.plaidTransactionId, // Use plaidTransactionId as fallback
         userCategory: t.finalCategory || t.userCategory || t.suggestedCategory, // Use finalCategory, existing userCategory, or suggestedCategory
         isReviewed: true // Always mark as reviewed when saving (user has reviewed the transaction)
@@ -203,41 +203,6 @@ function TransactionReview({ client, onComplete }) {
       console.error('Error saving categories:', error);
       alert('Failed to save categories');
     }
-    setSaving(false);
-  };
-
-  const saveAndApplyToAll = async () => {
-    if (!window.confirm("This will save the current changes and apply them to all past and future transactions with the same merchant names. This action cannot be undone. Continue?")) {
-      return;
-    }
-    setSaving(true);
-
-    // First, save the current month's categories and create the rules silently
-    await saveCategories();
-
-    // Now, find all manually changed transactions to apply retroactively
-    const changedTransactions = transactions.filter(t => t.isManuallyChanged);
-
-    if (changedTransactions.length > 0) {
-      try {
-        const updates = changedTransactions.map(t => ({
-          keyword: t.merchantName || t.name,
-          newCategory: t.finalCategory,
-          isIncome: isTransactionIncome(t, t.appliedRule) === true,
-        }));
-
-        // Call a new backend endpoint to apply these changes across all time
-        await api.post(`/api/clients/${client.clientId}/bulk-update-by-keyword`, {
-          updates,
-        });
-
-        alert('Retroactive update complete! All matching past transactions have been updated.');
-      } catch (error) {
-        console.error('Error applying retroactive updates:', error);
-        alert('Failed to apply updates to past transactions.');
-      }
-    }
-
     setSaving(false);
   };
 
@@ -690,7 +655,7 @@ function TransactionReview({ client, onComplete }) {
         {/* Save Button */}
         <div style={{ marginTop: '20px', textAlign: 'center' }}>
           <button 
-            onClick={saveCategories} 
+            onClick={saveAndReviewAll} 
             disabled={saving}
             style={{ 
               padding: '15px 30px', 
@@ -704,26 +669,7 @@ function TransactionReview({ client, onComplete }) {
               boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
             }}
           >
-            {saving ? 'Saving Categories...' : 'Save All Categories'}
-          </button>
-
-          <button
-            onClick={saveAndApplyToAll}
-            disabled={saving}
-            style={{
-              padding: '15px 30px',
-              backgroundColor: saving ? '#ccc' : '#28a745',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              fontSize: '16px',
-              fontWeight: '600',
-              cursor: saving ? 'not-allowed' : 'pointer',
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-              marginLeft: '15px'
-            }}
-          >
-            {saving ? 'Saving...' : 'Save & Apply to All'}
+            {saving ? 'Saving...' : 'Save & Mark All as Reviewed'}
           </button>
           
           {onComplete && (

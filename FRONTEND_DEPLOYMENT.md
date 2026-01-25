@@ -37,7 +37,6 @@ This creates a `build/` folder with static files.
      REACT_APP_SUPABASE_URL=your_supabase_url_here
      REACT_APP_SUPABASE_ANON_KEY=your_supabase_anon_key_here
      ```
-     ⚠️ **IMPORTANT**: You need Supabase environment variables too!
 
 5. Click **"Create Static Site"**
 
@@ -57,82 +56,6 @@ const allowedOrigins = [
   'https://your-frontend-name.onrender.com', // Add your Render frontend URL
   process.env.FRONTEND_URL
 ].filter(Boolean);
-```
-
----
-
-## Option 2: Deploy to Vercel (Recommended for React)
-
-Vercel is optimized for React apps and provides automatic deployments.
-
-### Step 1: Push to GitHub (If Using GitHub Integration)
-
-If you're connecting Vercel to your GitHub repository:
-1. **Commit and push your changes:**
-   ```bash
-   git add .
-   git commit -m "Prepare frontend for Vercel deployment"
-   git push origin main
-   ```
-
-2. **Wait for push to complete** before connecting to Vercel
-
-### Step 2: Connect Repository to Vercel
-
-1. Go to [Vercel Dashboard](https://vercel.com/dashboard)
-2. Click **"Add New..."** → **"Project"**
-3. **Import your GitHub repository**
-4. Configure the project:
-   - **Framework Preset**: **Create React App** ⚠️ Select this one!
-   - **Root Directory**: `frontend` ⚠️ **IMPORTANT: Set this!**
-   - **Build Command**: `npm run build` (auto-detected after selecting Create React App)
-   - **Output Directory**: `build` (auto-detected)
-   - **Install Command**: `npm install` (auto-detected)
-
-5. **Add Environment Variable:**
-   - Click **"Environment Variables"**
-   - Add: `REACT_APP_API_BASE` = `https://plaid-financial-system-api.onrender.com`
-   - Select **Production**, **Preview**, and **Development** environments
-
-6. Click **"Deploy"**
-
-### Alternative: Deploy via Vercel CLI
-
-If you prefer CLI:
-
-```bash
-# Install Vercel CLI globally
-npm install -g vercel
-
-# Navigate to frontend directory
-cd frontend
-
-# Deploy
-vercel
-```
-
-When prompted:
-- **Set up and deploy?** → Yes
-- **Which scope?** → Your account
-- **Link to existing project?** → No (first time) or Yes (if updating)
-- **What's your project's name?** → `plaid-financial-system-frontend`
-- **In which directory is your code located?** → `./` (since you're already in frontend)
-- **Want to override the settings?** → Yes
-  - **Framework Preset**: Create React App
-  - **Root Directory**: `./` (you're already in frontend)
-  - **Build Command**: `npm run build`
-  - **Output Directory**: `build`
-
-Add environment variable:
-```bash
-vercel env add REACT_APP_API_BASE
-# Enter: https://plaid-financial-system-api.onrender.com
-# Select: Production, Preview, Development
-```
-
-### Step 3: Update CORS
-
-After deployment, add your Vercel URL to the backend CORS configuration.
 
 ---
 
@@ -153,6 +76,8 @@ npm run build
    - **Build command**: `cd frontend && npm install && npm run build`
    - **Publish directory**: `frontend/build`
    - **Environment variable**: `REACT_APP_API_BASE=https://plaid-financial-system-api.onrender.com`
+   - **Environment variable**: `REACT_APP_SUPABASE_URL=your_supabase_url_here`
+   - **Environment variable**: `REACT_APP_SUPABASE_ANON_KEY=your_supabase_anon_key_here`
 
 ---
 
@@ -165,6 +90,8 @@ If you want to test the frontend locally but use the production backend:
 Create or update `frontend/.env.development`:
 ```bash
 REACT_APP_API_BASE=https://plaid-financial-system-api.onrender.com
+REACT_APP_SUPABASE_URL=your_supabase_url_here
+REACT_APP_SUPABASE_ANON_KEY=your_supabase_anon_key_here
 ```
 
 ### Step 2: Start Frontend

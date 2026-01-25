@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import config from './config';
+import api from './api';
 
 // Updated categories to match your schema exactly
 const EXPENSE_CATEGORIES = [
@@ -56,7 +55,7 @@ function TransactionReview({ client, onComplete }) {
     
     setLoading(true);
     try {
-      const response = await axios.get(
+      const response = await api.get(
         `/api/clients/${client.clientId}/transactions?month=${selectedMonth}`
       );
       setTransactions(response.data.transactions.map(t => ({
@@ -96,7 +95,7 @@ function TransactionReview({ client, onComplete }) {
         isReviewed: true // Always mark as reviewed when saving (user has reviewed the transaction)
       }));
 
-      await axios.post(`/api/clients/${client.clientId}/update-transaction-categories`, {
+      await api.post(`/api/clients/${client.clientId}/update-transaction-categories`, {
         transactions: updatedTransactions,
         month: selectedMonth
       });
@@ -106,7 +105,7 @@ function TransactionReview({ client, onComplete }) {
       
       // Regenerate summary to reflect the updated categories
       try {
-        await axios.post(`/api/process-transactions/${client.clientId}`, {
+        await api.post(`/api/process-transactions/${client.clientId}`, {
           targetMonth: selectedMonth,
           useUserCategories: true
         });
@@ -131,7 +130,7 @@ function TransactionReview({ client, onComplete }) {
     
     setLoading(true);
     try {
-      const response = await axios.post(`/api/clients/${client.clientId}/refresh-transactions`, {
+      const response = await api.post(`/api/clients/${client.clientId}/refresh-transactions`, {
         month: selectedMonth
       });
       
@@ -165,7 +164,7 @@ function TransactionReview({ client, onComplete }) {
         isReviewed: true
       }));
 
-      await axios.post(`/api/clients/${client.clientId}/update-transaction-categories`, {
+      await api.post(`/api/clients/${client.clientId}/update-transaction-categories`, {
         transactions: updatedTransactions,
         month: selectedMonth
       });

@@ -177,7 +177,7 @@ USING (
 
 ### URL Configuration
 In your Supabase dashboard:
-1. Go to Authentication > URL Configuration
+1. Go to Authentication > URL Configuration (previously "Auth Settings")
 2. Add your site URL: `https://your-domain.com`
 3. Add redirect URLs:
    - `https://your-domain.com/**`
@@ -224,8 +224,8 @@ In your Supabase dashboard:
 
 ## 11. Production Deployment
 
-### Frontend (Vercel/Netlify):
-Add environment variables in your hosting platform:
+### Frontend (Render):
+Add environment variables in your Render Static Site settings:
 - `REACT_APP_SUPABASE_URL`
 - `REACT_APP_SUPABASE_ANON_KEY`
 - `REACT_APP_API_BASE`

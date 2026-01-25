@@ -1,13 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from './api';
 import DocumentReview from './components/DocumentReview';
-import config from './config';
-
-// Configure axios to use cookies for authentication
-const axiosInstance = axios.create({
-  baseURL: config.API_BASE,
-  withCredentials: true, // Include cookies in all requests
-});
 
 const EXPENSE_CATEGORIES = [
   { value: 'housing', label: 'Housing' },
@@ -49,7 +42,7 @@ function AdminDashboard() {
 
   const loadClients = async () => {
     try {
-      const response = await axiosInstance.get(`/api/admin/clients`);
+      const response = await api.get(`/api/admin/clients`);
       setClients(response.data.clients || []);
     } catch (error) {
       console.error('Error loading clients:', error);
@@ -60,7 +53,7 @@ function AdminDashboard() {
   const loadTransactions = async (clientId) => {
     setLoading(true);
     try {
-      const response = await axiosInstance.get(
+      const response = await api.get(
         `/api/admin/transactions/${clientId}?month=${selectedMonth}`
       );
       setTransactions(response.data.transactions.map(t => ({
@@ -80,7 +73,7 @@ function AdminDashboard() {
   const loadMonthlySummaries = async (clientId) => {
     setLoading(true);
     try {
-      const response = await axiosInstance.get(`/api/admin/summaries/${clientId}`);
+      const response = await api.get(`/api/admin/summaries/${clientId}`);
       setMonthlySummaries(response.data.summaries || []);
       setSelectedClient(response.data.client);
       setView('summaries');
@@ -145,7 +138,7 @@ function AdminDashboard() {
         isReviewed: t.isReviewed
       }));
 
-      await axiosInstance.post(`/api/admin/save-categories/${selectedClient.clientId}`, {
+      await api.post(`/api/admin/save-categories/${selectedClient.clientId}`, {
         transactions: updatedTransactions,
         month: selectedMonth
       });
@@ -167,7 +160,7 @@ function AdminDashboard() {
     if (!selectedClient) return;
     
     try {
-      await axiosInstance.post(`/api/admin/regenerate-summary/${selectedClient.clientId}`, {
+      await api.post(`/api/admin/regenerate-summary/${selectedClient.clientId}`, {
         month: selectedMonth
       });
       alert('Monthly summary regenerated successfully!');

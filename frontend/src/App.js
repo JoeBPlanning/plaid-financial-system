@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from './api';
 // Plaid integration removed - using statement upload + OCR instead
 // Chart.js imports removed - investments functionality removed
 import './App.css';
@@ -19,176 +19,6 @@ import {
   validateEmail
 } from './supabaseClient';
 import config from './config';
-
-// Chart.js registration removed - investments functionality removed
-
-// Configure axios to include Supabase auth token
-const axiosInstance = axios.create({
-  baseURL: config.API_BASE,
-  withCredentials: true,
-});
-
-// Add Supabase auth token to all requests
-axiosInstance.interceptors.request.use(async (config) => {
-  try {
-    // Get current session
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-    
-    if (sessionError) {
-      console.error('Error getting session in request interceptor:', sessionError);
-    }
-    
-    let accessToken = session?.access_token;
-    
-    // If we have a session but the token might be expired, try to refresh
-    if (session?.refresh_token && (!accessToken || isTokenExpired(session.expires_at))) {
-      console.log('Token expired or missing, attempting refresh...');
-      try {
-        const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession({
-          refresh_token: session.refresh_token
-        });
-        
-        if (refreshError) {
-          console.error('Error refreshing token in request interceptor:', refreshError);
-        } else if (refreshedSession?.access_token) {
-          console.log('Token refreshed successfully in request interceptor');
-          accessToken = refreshedSession.access_token;
-        }
-      } catch (refreshError) {
-        console.error('Exception during token refresh in request interceptor:', refreshError);
-      }
-    }
-    
-    if (accessToken) {
-      config.headers.Authorization = `Bearer ${accessToken}`;
-    } else {
-      console.warn('No access token available for request:', config.url);
-    }
-  } catch (error) {
-    console.error('Error in request interceptor:', error);
-  }
-  return config;
-});
-
-// Helper function to check if token is expired
-function isTokenExpired(expiresAt) {
-  if (!expiresAt) return true;
-  // Supabase returns expires_at as Unix timestamp in SECONDS, not milliseconds
-  // Convert to milliseconds and add 60 second buffer to refresh before actual expiration
-  const expirationTime = expiresAt * 1000 - 60000;
-  return Date.now() >= expirationTime;
-}
-
-// Handle authentication errors
-axiosInstance.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    if (error.response?.status === 401) {
-      // Log the error for debugging
-      console.error('Auth error from backend:', error.response?.data || error.message);
-      console.error('Failed URL:', error.config?.url);
-
-      // Don't retry if this is already a retry to avoid infinite loops
-      if (error.config._retry) {
-        console.error('Token refresh already attempted, rejecting request');
-        // For critical endpoints, sign out if refresh failed
-        const criticalEndpoints = ['/transactions', '/process-transactions', '/statements'];
-        const isCritical = criticalEndpoints.some(endpoint => error.config?.url?.includes(endpoint));
-        if (isCritical) {
-          console.error('Critical endpoint failed after token refresh, signing out');
-          try {
-            await signOut();
-            window.location.href = '/';
-          } catch (signOutError) {
-            console.error('Error signing out:', signOutError);
-          }
-        }
-        return Promise.reject(error);
-      }
-
-      // Try to refresh the session token
-      try {
-        console.log('Attempting to refresh token for:', error.config?.url);
-        
-        // Get current session
-        const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
-        
-        if (sessionError) {
-          console.error('Session error:', sessionError);
-        }
-        
-        let newAccessToken = null;
-        
-        // Check if current token is expired or missing
-        const tokenExpired = !currentSession?.access_token || 
-                            (currentSession.expires_at && isTokenExpired(currentSession.expires_at));
-        
-        // If token is expired or missing, try to refresh
-        if (tokenExpired && currentSession?.refresh_token) {
-          console.log('Token expired, attempting manual refresh...');
-          const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession({
-            refresh_token: currentSession.refresh_token
-          });
-          
-          if (refreshError) {
-            console.error('Token refresh error:', refreshError);
-          } else if (refreshedSession?.access_token) {
-            console.log('Token refreshed successfully');
-            newAccessToken = refreshedSession.access_token;
-          }
-        } 
-        // If we have a valid access token, use it (might have been auto-refreshed)
-        else if (currentSession?.access_token) {
-          console.log('Using current session access token');
-          newAccessToken = currentSession.access_token;
-        }
-        
-        // If we got a new token, retry the request
-        if (newAccessToken) {
-          console.log('Retrying request with refreshed token');
-          error.config.headers.Authorization = `Bearer ${newAccessToken}`;
-          error.config._retry = true;
-          // Clear any cached response
-          delete error.config.transformRequest;
-          // Small delay to ensure token is fully propagated
-          await new Promise(resolve => setTimeout(resolve, 100));
-          return axiosInstance.request(error.config);
-        } else {
-          console.error('No valid token available after refresh attempt');
-          // Try one more time to get session - sometimes Supabase needs a moment
-          const { data: { session: finalSession } } = await supabase.auth.getSession();
-          if (finalSession?.access_token) {
-            console.log('Got token on second attempt, retrying...');
-            error.config.headers.Authorization = `Bearer ${finalSession.access_token}`;
-            error.config._retry = true;
-            return axiosInstance.request(error.config);
-          }
-        }
-      } catch (refreshError) {
-        console.error('Failed to refresh session:', refreshError);
-      }
-
-      // If refresh failed, sign out for critical endpoints
-      const criticalEndpoints = ['/transactions', '/process-transactions', '/statements'];
-      const isCritical = criticalEndpoints.some(endpoint => error.config?.url?.includes(endpoint));
-      if (isCritical) {
-        console.error('Token refresh failed for critical endpoint, signing out');
-        try {
-          await signOut();
-          window.location.href = '/';
-        } catch (signOutError) {
-          console.error('Error signing out:', signOutError);
-        }
-      }
-    }
-    
-    if (error.response?.status === 403) {
-      console.error('Access denied:', error.response?.data);
-    }
-    
-    return Promise.reject(error);
-  }
-);
 
 function App() {
   const [step, setStep] = useState('login');
@@ -622,7 +452,7 @@ function App() {
     const targetMonth = month || selectedMonth;
     try {
       // Try to get summary for specific month
-      const response = await axiosInstance.get(`/api/clients/${clientId}/summaries?limit=12`);
+      const response = await api.get(`/api/clients/${clientId}/summaries?limit=12`);
       if (response.data.summaries && response.data.summaries.length > 0) {
         // Find summary for the target month
         const monthSummary = response.data.summaries.find(s => s.monthYear === targetMonth);
@@ -637,7 +467,7 @@ function App() {
       
       // If no summary exists, generate one using process-transactions
       try {
-        const processResponse = await axiosInstance.post(`/api/process-transactions/${clientId}`, {
+        const processResponse = await api.post(`/api/process-transactions/${clientId}`, {
           targetMonth: targetMonth,
           useUserCategories: true
         });
@@ -645,14 +475,14 @@ function App() {
           setMonthlySummary(processResponse.data.summary);
         } else {
           // Fallback: try regenerate-summary endpoint
-          const genResponse = await axiosInstance.post(`/api/admin/regenerate-summary/${clientId}`, {
+          const genResponse = await api.post(`/api/admin/regenerate-summary/${clientId}`, {
             month: targetMonth
           });
           if (genResponse.data.success && genResponse.data.summary) {
             setMonthlySummary(genResponse.data.summary);
           } else {
             // Last resort: reload summaries
-            const reloadResponse = await axiosInstance.get(`/api/clients/${clientId}/summaries?limit=1`);
+            const reloadResponse = await api.get(`/api/clients/${clientId}/summaries?limit=1`);
             if (reloadResponse.data.summaries && reloadResponse.data.summaries.length > 0) {
               setMonthlySummary(reloadResponse.data.summaries[0]);
             }
@@ -661,7 +491,7 @@ function App() {
       } catch (genError) {
         console.error('Could not generate summary:', genError);
         // Try to load any existing summary as last resort
-        const fallbackResponse = await axiosInstance.get(`/api/clients/${clientId}/summaries?limit=1`);
+        const fallbackResponse = await api.get(`/api/clients/${clientId}/summaries?limit=1`);
         if (fallbackResponse.data.summaries && fallbackResponse.data.summaries.length > 0) {
           setMonthlySummary(fallbackResponse.data.summaries[0]);
         }
@@ -670,7 +500,7 @@ function App() {
       console.error('Error loading monthly summary:', error);
       // Try to process transactions as a last resort
       try {
-        const processResponse = await axiosInstance.post(`/api/process-transactions/${clientId}`, {
+        const processResponse = await api.post(`/api/process-transactions/${clientId}`, {
           targetMonth: targetMonth,
           useUserCategories: true
         });
@@ -688,7 +518,7 @@ function App() {
     try {
       // Process transactions for current month to get latest net worth
       const currentMonth = new Date().toISOString().slice(0, 7);
-      const processResponse = await axiosInstance.post(`/api/process-transactions/${clientId}`, {
+      const processResponse = await api.post(`/api/process-transactions/${clientId}`, {
         targetMonth: currentMonth,
         useUserCategories: true
       });
@@ -714,7 +544,7 @@ function App() {
   const checkUnreviewedTransactions = async (clientId) => {
     try {
       const currentMonth = new Date().toISOString().slice(0, 7);
-      const response = await axiosInstance.get(
+      const response = await api.get(
         `/api/clients/${clientId}/transactions?month=${currentMonth}`
       );
       
@@ -740,7 +570,7 @@ function App() {
   // Process transactions for the client
   const processTransactions = async (useReviewedTransactions = false) => {
     try {
-      const response = await axiosInstance.post(`/api/process-transactions/${client.clientId}`, {
+      const response = await api.post(`/api/process-transactions/${client.clientId}`, {
         useUserCategories: useReviewedTransactions
       });
       setMonthlySummary(response.data.summary);
@@ -756,11 +586,11 @@ function App() {
     setLoading(true);
     try {
       // Sync transactions
-      await axiosInstance.post(`/api/clients/${client.clientId}/sync-transactions`);
+      await api.post(`/api/clients/${client.clientId}/sync-transactions`);
       
       // Sync investments - DISABLED
       // try {
-      //   await axiosInstance.post(`/api/clients/${client.clientId}/sync-investments`);
+      //   await api.post(`/api/clients/${client.clientId}/sync-investments`);
       // } catch (invError) {
       //   console.warn('Could not sync investments:', invError);
       //   // Don't fail the whole refresh if investments fail

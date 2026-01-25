@@ -2,7 +2,7 @@
 
 ## What Was Done
 
-I've successfully implemented Supabase authentication in your Financial Progress Portal, replacing the old username/password system with a modern, secure authentication flow.
+This document summarizes the migration from a legacy cookie-based authentication system to a modern JWT-based flow using Supabase.
 
 ## Files Created
 
@@ -30,7 +30,6 @@ Overview of all changes made.
 ### 1. `frontend/src/App.js`
 **Major Changes:**
 - ✅ Added Supabase imports and initialization
-- ✅ Replaced axios interceptor to include Supabase JWT token
 - ✅ Added authentication state management (user, session)
 - ✅ Implemented three authentication modes:
   - **Registration Mode**: Full name, email, password, confirm password with validation
@@ -84,10 +83,7 @@ Overview of all changes made.
 - ✅ Removed old `/api/auth/register` route
 - ✅ Removed old `/api/auth/logout` route
 - ✅ Removed old `/api/auth/forgot-password` route
-- ✅ Added new `/api/auth/me` endpoint to get current user info
 - ✅ All protected routes now use Supabase JWT verification
-
-**Note:** Some unused imports (bcrypt, loginLimiter, etc.) are still present but can be cleaned up later.
 
 ## Next Steps - IMPORTANT!
 
@@ -108,8 +104,8 @@ npm install @supabase/supabase-js
 #### Frontend (.env)
 Create `frontend/.env`:
 ```bash
-REACT_APP_SUPABASE_URL=https://your-project.supabase.co
-REACT_APP_SUPABASE_ANON_KEY=your-anon-key-here
+REACT_APP_SUPABASE_URL=your_supabase_url
+REACT_APP_SUPABASE_ANON_KEY=your_supabase_anon_key
 REACT_APP_API_BASE=https://plaid-financial-system-api.onrender.com
 ```
 

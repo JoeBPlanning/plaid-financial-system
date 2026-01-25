@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from './api';
+import { supabase } from './supabaseClient';
 
 // Updated categories to match your schema exactly
 const EXPENSE_CATEGORIES = [
@@ -44,6 +45,7 @@ function TransactionReview({ client, onComplete }) {
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [filter, setFilter] = useState('all'); // 'all', 'unreviewed', 'reviewed'
   const [searchTerm, setSearchTerm] = useState('');
+  const [rules, setRules] = useState([]);
 
   useEffect(() => {
     loadTransactions();
@@ -55,37 +57,61 @@ function TransactionReview({ client, onComplete }) {
     
     setLoading(true);
     try {
-      const response = await api.get(
+      // Fetch both transactions and rules concurrently
+      const [transactionResponse, rulesResponse] = await Promise.all([
+        api.get(
         `/api/clients/${client.clientId}/transactions?month=${selectedMonth}`
-      );
-      setTransactions(response.data.transactions.map(t => ({
-        ...t,
-        finalCategory: t.userCategory || t.suggestedCategory,
-        // Apply new income/transfer logic to set default finalCategory if not already set by user
-        ...(() => {
-          const isTransfer = isTransactionTransfer(t);
-          const isIncome = isTransactionIncome(t); // This will be true, false, or null
+        ),
+        supabase.from('transaction_rules').select('*').eq('user_id', client.clientId)
+      ]);
 
-          let defaultSuggestedCategory = t.suggestedCategory;
-          if (isTransfer) {
-            defaultSuggestedCategory = 'transfers'; // Use the existing 'transfers' category for transfers
-          } else if (isIncome === true) {
-            const name = (t.name || t.merchantName || '').toLowerCase();
-            if (name.includes('stripe') || name.includes('square') || name.includes('paypal')) {
-              defaultSuggestedCategory = 'business'; // Assuming these are business-related inflows
-            } else if (name.includes('electronic deposit') || name.includes('zelle')) {
-              defaultSuggestedCategory = 'other'; // General income, user can refine
-            } else {
-              defaultSuggestedCategory = 'salary'; // Default for other income
-            }
-          } else if (isIncome === false) { // It's an expense
-            defaultSuggestedCategory = t.suggestedCategory || 'uncategorized';
+      const fetchedRules = rulesResponse.data || [];
+      setRules(fetchedRules);
+
+      const processedTransactions = transactionResponse.data.transactions.map(t => {
+        let finalCategory = t.userCategory || t.suggestedCategory;
+        let appliedRule = null;
+
+        // Apply auto-categorization rules
+        for (const rule of fetchedRules) {
+          if ((t.name || t.merchantName || '').toLowerCase().includes(rule.keyword.toLowerCase())) {
+            finalCategory = rule.assigned_category;
+            appliedRule = rule;
+            break; // Apply first matching rule
           }
-          return { finalCategory: t.userCategory || defaultSuggestedCategory };
-        })(),
-        // Ensure isReviewed is properly set based on whether userCategory exists or is newly assigned
-        isReviewed: t.isReviewed !== undefined ? t.isReviewed : (t.userCategory ? true : false)
-      })));
+        }
+
+        // Apply new income/transfer logic to set default finalCategory if not already set by user
+        const isTransfer = isTransactionTransfer(t);
+        const isIncome = isTransactionIncome(t, appliedRule); // Pass applied rule
+
+        if (!t.userCategory && !appliedRule) { // Only suggest if not manually set or ruled
+            if (isTransfer) {
+                finalCategory = 'transfers';
+            } else if (isIncome) {
+                const name = (t.name || t.merchantName || '').toLowerCase();
+                if (name.includes('stripe') || name.includes('square') || name.includes('paypal')) {
+                    finalCategory = 'business';
+                } else if (name.includes('electronic deposit') || name.includes('zelle')) {
+                    finalCategory = 'other';
+                } else {
+                    finalCategory = t.suggestedCategory || 'salary';
+                }
+            } else { // Expense
+                finalCategory = t.suggestedCategory || 'uncategorized';
+            }
+        }
+
+        return {
+        ...t,
+          finalCategory,
+          appliedRule, // Store which rule was applied
+          // Ensure isReviewed is properly set based on whether userCategory exists or is newly assigned
+          isReviewed: t.isReviewed !== undefined ? t.isReviewed : (!!t.userCategory || !!appliedRule)
+        };
+      });
+
+      setTransactions(processedTransactions);
     } catch (error) {
       console.error('Error loading transactions:', error);
       alert('Failed to load transactions');
@@ -99,6 +125,7 @@ function TransactionReview({ client, onComplete }) {
         return { 
           ...t, 
           finalCategory: category, 
+          isManuallyChanged: true, // Flag for rule creation
           userCategory: category, // Also update userCategory so it persists
           isReviewed: true 
         };
@@ -110,12 +137,37 @@ function TransactionReview({ client, onComplete }) {
   const saveCategories = async () => {
     setSaving(true);
     try {
+      // Identify transactions that were manually changed to create new rules
+      const potentialNewRules = transactions.filter(t => t.isManuallyChanged && !t.appliedRule);
+
+      for (const t of potentialNewRules) {
+        const merchantName = t.merchantName || t.name;
+        if (window.confirm(`Do you want to create a rule to always categorize "${merchantName}" as "${t.finalCategory}"?`)) {
+          const isIncome = isTransactionIncome(t) === true;
+          const newRule = {
+            user_id: client.clientId,
+            keyword: merchantName,
+            assigned_category: t.finalCategory,
+            is_income: isIncome,
+          };
+
+          const { error } = await supabase.from('transaction_rules').insert(newRule);
+          if (error) {
+            console.error('Error creating rule:', error);
+            alert(`Failed to create rule for "${merchantName}".`);
+          } else {
+            console.log('Rule created:', newRule);
+          }
+        }
+      }
+
       // Include ALL transactions, marking them as reviewed if they have a category
       const updatedTransactions = transactions.map(t => ({
         transactionId: t._id || t.plaidTransactionId, // Use plaidTransactionId as fallback
         userCategory: t.finalCategory || t.userCategory || t.suggestedCategory, // Use finalCategory, existing userCategory, or suggestedCategory
         isReviewed: true // Always mark as reviewed when saving (user has reviewed the transaction)
       }));
+
 
       await api.post(`/api/clients/${client.clientId}/update-transaction-categories`, {
         transactions: updatedTransactions,
@@ -143,31 +195,6 @@ function TransactionReview({ client, onComplete }) {
       alert('Failed to save categories');
     }
     setSaving(false);
-  };
-
-  const refreshTransactions = async () => {
-    if (!window.confirm('This will refresh all transactions with corrected income/expense categorization. Continue?')) {
-      return;
-    }
-    
-    setLoading(true);
-    try {
-      const response = await api.post(`/api/clients/${client.clientId}/refresh-transactions`, {
-        month: selectedMonth
-      });
-      
-      if (response.data.success) {
-        // Reload the transactions
-        await loadTransactions();
-        alert('Transactions refreshed with corrected categorization!');
-      } else {
-        alert(response.data.message || 'No valid bank connections found. Please connect a real bank account.');
-      }
-    } catch (error) {
-      console.error('Error refreshing transactions:', error);
-      alert('Failed to refresh transactions. Make sure you have a valid bank connection.');
-    }
-    setLoading(false);
   };
 
   const markAllAsReviewed = async () => {
@@ -248,11 +275,15 @@ function TransactionReview({ client, onComplete }) {
   // - Depository accounts: positive = credit/deposit (income), negative = debit/withdrawal (expense)
   // - Loan accounts: positive = loan disbursement (income), negative = payment (expense)
   // Per user request, this has been simplified to follow the Plaid standard:
-  // Negative amount = Inflow (Income)
-  // Positive amount = Outflow (Expense)
-  const isTransactionIncome = (transaction) => {
+  // Negative amount = Inflow (Income), Positive amount = Outflow (Expense)
+  const isTransactionIncome = (transaction, appliedRule = null) => {
     const name = (transaction.name || transaction.merchantName || '').toLowerCase();
     const amount = transaction.amount;
+
+    // Rule Override: If a rule is applied, its is_income flag is the source of truth.
+    if (appliedRule) {
+      return appliedRule.is_income;
+    }
 
     // First, check if it's a transfer, which is neither income nor expense.
     if (isTransactionTransfer(transaction)) {
@@ -406,20 +437,6 @@ function TransactionReview({ client, onComplete }) {
             >
               Mark All as Reviewed
             </button>
-            
-            <button 
-              onClick={refreshTransactions}
-              style={{
-                padding: '8px 16px',
-                background: '#ff6b35',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
-            >
-              Fix Income/Expense
-            </button>
           </div>
         </div>
 
@@ -468,7 +485,7 @@ function TransactionReview({ client, onComplete }) {
                 }}>
                   {(() => {
                     const isTransfer = isTransactionTransfer(transaction);
-                    const isIncome = isTransactionIncome(transaction);
+                    const isIncome = isTransactionIncome(transaction, transaction.appliedRule);
                     // eslint-disable-next-line no-unused-vars
                     const isExpense = !isTransfer && !isIncome;
                     
@@ -520,10 +537,10 @@ function TransactionReview({ client, onComplete }) {
                   >
                     {(() => {
                       const isTransfer = isTransactionTransfer(transaction);
-                      const isIncome = isTransactionIncome(transaction);
+                      const isIncome = isTransactionIncome(transaction, transaction.appliedRule);
                       
                       // For transfers, show all categories (or could show a "Transfer" category)
-                      if (isTransfer) { // If it's a transfer, default to 'transfers' and show all categories
+                      if (isTransfer) {
                         return (
                           <>
                             <option value="uncategorized">Transfer</option>
@@ -563,6 +580,15 @@ function TransactionReview({ client, onComplete }) {
                       fontSize: '11px', 
                       color: '#28a745', 
                       marginTop: '2px' 
+                    }}>
+                      ✓ Reviewed
+                    </div>
+                  )}
+                  {transaction.appliedRule && (
+                    <div style={{
+                      fontSize: '10px',
+                      color: '#667eea',
+                      marginTop: '2px'
                     }}>
                       ✓ Reviewed
                     </div>

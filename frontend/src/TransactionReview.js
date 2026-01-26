@@ -239,25 +239,6 @@ function TransactionReview({ client, onComplete }) {
     }).format(Math.abs(amount) || 0);
   };
 
-  const toggleTransactionType = (transactionId) => {
-    setTransactions(prev => prev.map(t => {
-      if (t._id === transactionId) {
-        const isCurrentlyIncome = isTransactionIncome(t, t.appliedRule) === true;
-        const isCurrentlyTransfer = isTransactionTransfer(t);
-
-        // If it's a transfer, mark as income. If income, mark as transfer.
-        const newTypeOverride = (isCurrentlyTransfer || isCurrentlyIncome === null) ? 'income' : 'transfer';
-
-        return {
-          ...t,
-          typeOverride: newTypeOverride,
-          isManuallyChanged: true,
-        };
-      }
-      return t;
-    }));
-  };
-
 
   // Determine if transaction is a transfer (not income or expense)
   // Transfers include: credit card payments, account transfers, CD deposits, etc.
@@ -628,7 +609,7 @@ function TransactionReview({ client, onComplete }) {
         {/* Save Button */}
         <div style={{ marginTop: '20px', textAlign: 'center' }}>
           <button 
-            onClick={saveCategories} 
+            onClick={saveAndReviewAll} 
             disabled={saving}
             style={{ 
               padding: '15px 30px', 
@@ -642,25 +623,7 @@ function TransactionReview({ client, onComplete }) {
               boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
             }}
           >
-            {saving ? 'Saving Categories...' : 'Save All Categories'}
-          </button>
-          
-          {onComplete && (
-            <button 
-              onClick={() => onComplete()}
-              style={{ 
-                padding: '15px 30px', 
-                backgroundColor: 'transparent', 
-                color: '#667eea', 
-                border: '2px solid #667eea', 
-                borderRadius: '8px',
-                fontSize: '16px',
-                fontWeight: '600',
-                cursor: 'pointer',
-                marginLeft: '15px'
-              }}
-            >
-              Done & Return to Dashboard
+            {saving ? 'Saving...' : 'Save & Apply to All'}
             </button>
           )}
         </div>

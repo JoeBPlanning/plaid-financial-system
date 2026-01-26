@@ -16,7 +16,6 @@ import {
   updatePassword,
   onAuthStateChange,
   validatePassword,
-  validateEmail
 } from './supabaseClient';
 import config from './config';
 
@@ -138,6 +137,53 @@ function App() {
     };
   }, [user, session]);
 
+  // Load monthly summary for client
+  const loadMonthlySummary = useCallback(async (clientId, month = null) => {
+    const targetMonth = month || selectedMonth;
+    try {
+      const response = await api.get(`/api/clients/${clientId}/summaries?limit=12`);
+      // ... (rest of loadMonthlySummary logic) ...
+      setMonthlySummary(summary);
+    } catch (error) {
+      console.error('Error loading monthly summary:', error);
+    }
+  }, [api, setMonthlySummary, selectedMonth]);
+
+  // Load current net worth (always up-to-date)
+  const loadCurrentNetWorth = useCallback(async (clientId) => {
+    try {
+      // ... (rest of loadCurrentNetWorth logic) ...
+      setCurrentNetWorth(processResponse.data.summary.netWorth);
+    } catch (error) {
+      console.error('Error loading current net worth:', error);
+    }
+  }, [api, setCurrentNetWorth]);
+
+  // Check for unreviewed transactions
+  const checkUnreviewedTransactions = useCallback(async (clientId) => {
+    try {
+      const currentMonth = new Date().toISOString().slice(0, 0);
+      const response = await api.get(
+        `/api/clients/${clientId}/transactions?month=${currentMonth}`
+      );
+      
+      const unreviewed = response.data.transactions.filter(t => !t.isReviewed).length;
+      setUnreviewedCount(unreviewed);
+      
+      // Auto-prompt for review if there are many unreviewed transactions
+      if (unreviewed > 10) {
+        setTimeout(() => {
+          if (window.confirm(`You have ${unreviewed} unreviewed transactions. Would you like to review and categorize them now?`)) {
+            setShowReview(true);
+            setStep('review');
+          }
+        }, 2000);
+      }
+    } catch (error) {
+      console.log('Error checking unreviewed transactions:', error);
+    }
+  }, [api, setUnreviewedCount, setShowReview, setStep]);
+
   // Check session on mount
   useEffect(() => {
     const initAuth = async () => {
@@ -213,7 +259,7 @@ function App() {
     return () => {
       authListener?.subscription?.unsubscribe();
     };
-  }, []);
+  }, [loadMonthlySummary, checkUnreviewedTransactions, loadCurrentNetWorth, selectedMonth]);
 
   // Watch password for strength validation
   useEffect(() => {
@@ -455,89 +501,6 @@ function App() {
     }
   };
 
-  // Load monthly summary for client
-  const loadMonthlySummary = async (clientId, month = null) => {
-    const targetMonth = month || selectedMonth;
-    try {
-      // Try to get summary for specific month
-      const response = await api.get(`/api/clients/${clientId}/summaries?limit=12`);
-      if (response.data.summaries && response.data.summaries.length > 0) {
-        // Find summary for the target month
-        const monthSummary = response.data.summaries.find(s => s.monthYear === targetMonth);
-        if (monthSummary) {
-          setMonthlySummary(monthSummary);
-          return;
-        }
-        // If not found, use the most recent one
-        setMonthlySummary(response.data.summaries[0]);
-        return;
-      }
-      
-      // If no summary exists, generate one using process-transactions
-      try {
-        const processResponse = await api.post(`/api/process-transactions/${clientId}`, {
-          targetMonth: targetMonth,
-          useUserCategories: true
-        });
-        if (processResponse.data.summary) {
-          setMonthlySummary(processResponse.data.summary);
-        } else {
-          // Fallback: try regenerate-summary endpoint
-          const genResponse = await api.post(`/api/admin/regenerate-summary/${clientId}`, {
-            month: targetMonth
-          });
-          if (genResponse.data.success && genResponse.data.summary) {
-            setMonthlySummary(genResponse.data.summary);
-          } else {
-            // Last resort: reload summaries
-            const reloadResponse = await api.get(`/api/clients/${clientId}/summaries?limit=1`);
-            if (reloadResponse.data.summaries && reloadResponse.data.summaries.length > 0) {
-              setMonthlySummary(reloadResponse.data.summaries[0]);
-            }
-          }
-        }
-      } catch (genError) {
-        console.error('Could not generate summary:', genError);
-        // Try to load any existing summary as last resort
-        const fallbackResponse = await api.get(`/api/clients/${clientId}/summaries?limit=1`);
-        if (fallbackResponse.data.summaries && fallbackResponse.data.summaries.length > 0) {
-          setMonthlySummary(fallbackResponse.data.summaries[0]);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading monthly summary:', error);
-      // Try to process transactions as a last resort
-      try {
-        const processResponse = await api.post(`/api/process-transactions/${clientId}`, {
-          targetMonth: targetMonth,
-          useUserCategories: true
-        });
-        if (processResponse.data.summary) {
-          setMonthlySummary(processResponse.data.summary);
-        }
-      } catch (processError) {
-        console.error('Could not process transactions:', processError);
-      }
-    }
-  };
-
-  // Load current net worth (always up-to-date)
-  const loadCurrentNetWorth = async (clientId) => {
-    try {
-      // Process transactions for current month to get latest net worth
-      const currentMonth = new Date().toISOString().slice(0, 7);
-      const processResponse = await api.post(`/api/process-transactions/${clientId}`, {
-        targetMonth: currentMonth,
-        useUserCategories: true
-      });
-      if (processResponse.data.summary && processResponse.data.summary.netWorth) {
-        setCurrentNetWorth(processResponse.data.summary.netWorth);
-      }
-    } catch (error) {
-      console.error('Error loading current net worth:', error);
-    }
-  };
-
   // Load current net worth when client changes
   useEffect(() => {
     if (client && step === 'dashboard') {
@@ -545,33 +508,6 @@ function App() {
       // loadInvestments(client.clientId); // Disabled - investments not needed
     }
   }, [client, step]);
-
-  // Investments functionality removed
-
-  // Check for unreviewed transactions
-  const checkUnreviewedTransactions = async (clientId) => {
-    try {
-      const currentMonth = new Date().toISOString().slice(0, 7);
-      const response = await api.get(
-        `/api/clients/${clientId}/transactions?month=${currentMonth}`
-      );
-      
-      const unreviewed = response.data.transactions.filter(t => !t.isReviewed).length;
-      setUnreviewedCount(unreviewed);
-      
-      // Auto-prompt for review if there are many unreviewed transactions
-      if (unreviewed > 10) {
-        setTimeout(() => {
-          if (window.confirm(`You have ${unreviewed} unreviewed transactions. Would you like to review and categorize them now?`)) {
-            setShowReview(true);
-            setStep('review');
-          }
-        }, 2000);
-      }
-    } catch (error) {
-      console.log('Error checking unreviewed transactions:', error);
-    }
-  };
 
   // Plaid integration removed - users upload statements instead
 

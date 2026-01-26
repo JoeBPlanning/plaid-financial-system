@@ -45,32 +45,22 @@ function TransactionReview({ client, onComplete }) {
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [filter, setFilter] = useState('all'); // 'all', 'unreviewed', 'reviewed'
   const [searchTerm, setSearchTerm] = useState('');
-  // eslint-disable-next-line no-unused-vars
-  const [rules, setRules] = useState([]); // Rules state is maintained for rule creation logic
+  const [rules, setRules] = useState([]);
 
   useEffect(() => {
     loadTransactions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, selectedMonth, filter]); // Re-fetch when filter changes
+  }, [client, selectedMonth]);
 
   const loadTransactions = async () => {
     if (!client) return;
     
     setLoading(true);
     try {
-      // Build query params based on the filter state
-      const params = new URLSearchParams({ month: selectedMonth });
-      if (filter === 'unreviewed') {
-        params.append('is_reviewed', 'false');
-      } else if (filter === 'reviewed') {
-        params.append('is_reviewed', 'true');
-      }
-      // 'all' sends no is_reviewed param, so backend returns all
-
       // Fetch both transactions and rules concurrently
       const [transactionResponse, rulesResponse] = await Promise.all([
         api.get(
-        `/api/clients/${client.clientId}/transactions?${params.toString()}`
+        `/api/clients/${client.clientId}/transactions?month=${selectedMonth}`
         ),
         supabase.from('transaction_rules').select('*').eq('user_id', client.clientId)
       ]);
@@ -94,7 +84,7 @@ function TransactionReview({ client, onComplete }) {
         // Apply new income/transfer logic to set default finalCategory if not already set by user
         const isTransfer = isTransactionTransfer(t);
         const isIncome = isTransactionIncome(t, appliedRule); // Pass applied rule
-        
+
         if (!t.userCategory && !appliedRule) { // Only suggest if not manually set or ruled
             if (isTransfer) {
                 finalCategory = 'transfers';
@@ -113,7 +103,7 @@ function TransactionReview({ client, onComplete }) {
         }
 
         return {
-          ...t,
+        ...t,
           finalCategory,
           appliedRule, // Store which rule was applied
           // Ensure isReviewed is properly set based on whether userCategory exists or is newly assigned
@@ -144,34 +134,35 @@ function TransactionReview({ client, onComplete }) {
     }));
   };
 
-  const saveAndReviewAll = async () => {
+  const saveCategories = async () => {
     setSaving(true);
     try {
-      // Silently create/update rules for manually changed transactions
+      // Identify transactions that were manually changed to create new rules
       const potentialNewRules = transactions.filter(t => t.isManuallyChanged && !t.appliedRule);
 
       for (const t of potentialNewRules) {
         const merchantName = t.merchantName || t.name;
-        const isIncome = isTransactionIncome(t, t.appliedRule) === true;
-        const newRule = {
-          user_id: client.clientId,
-          keyword: merchantName,
-          assigned_category: t.finalCategory,
-          is_income: isIncome,
-        };
+        if (window.confirm(`Do you want to create a rule to always categorize "${merchantName}" as "${t.finalCategory}"?`)) {
+          const isIncome = isTransactionIncome(t) === true;
+          const newRule = {
+            user_id: client.clientId,
+            keyword: merchantName,
+            assigned_category: t.finalCategory,
+            is_income: isIncome,
+          };
 
-        // Upsert silently: creates a new rule or updates an existing one for the same keyword.
-        const { error } = await supabase
-          .from('transaction_rules')
-          .upsert(newRule, { onConflict: 'user_id, keyword' });
-
-        if (error) {
-          console.error('Error saving rule:', error);
+          const { error } = await supabase.from('transaction_rules').insert(newRule);
+          if (error) {
+            console.error('Error creating rule:', error);
+            alert(`Failed to create rule for "${merchantName}".`);
+          } else {
+            console.log('Rule created:', newRule);
+          }
         }
       }
 
-      // Prepare all transactions in the current view to be marked as reviewed
-      const updatedTransactions = filteredTransactions.map(t => ({
+      // Include ALL transactions, marking them as reviewed if they have a category
+      const updatedTransactions = transactions.map(t => ({
         transactionId: t._id || t.plaidTransactionId, // Use plaidTransactionId as fallback
         userCategory: t.finalCategory || t.userCategory || t.suggestedCategory, // Use finalCategory, existing userCategory, or suggestedCategory
         isReviewed: true // Always mark as reviewed when saving (user has reviewed the transaction)
@@ -204,6 +195,31 @@ function TransactionReview({ client, onComplete }) {
       alert('Failed to save categories');
     }
     setSaving(false);
+  };
+
+  const refreshTransactions = async () => {
+    if (!window.confirm('This will refresh all transactions with corrected income/expense categorization. Continue?')) {
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      const response = await api.post(`/api/clients/${client.clientId}/refresh-transactions`, {
+        month: selectedMonth
+      });
+      
+      if (response.data.success) {
+        // Reload the transactions
+        await loadTransactions();
+        alert('Transactions refreshed with corrected categorization!');
+      } else {
+        alert(response.data.message || 'No valid bank connections found. Please connect a real bank account.');
+      }
+    } catch (error) {
+      console.error('Error refreshing transactions:', error);
+      alert('Failed to refresh transactions. Make sure you have a valid bank connection.');
+    }
+    setLoading(false);
   };
 
   const markAllAsReviewed = async () => {
@@ -243,24 +259,6 @@ function TransactionReview({ client, onComplete }) {
     }).format(Math.abs(amount) || 0);
   };
 
-  const toggleTransactionType = (transactionId) => {
-    setTransactions(prev => prev.map(t => {
-      if (t._id === transactionId) {
-        const isCurrentlyIncome = isTransactionIncome(t, t.appliedRule) === true;
-        const isCurrentlyTransfer = isTransactionTransfer(t);
-
-        // If it's a transfer, mark as income. If income, mark as transfer.
-        const newTypeOverride = (isCurrentlyTransfer || isCurrentlyIncome === null) ? 'income' : 'transfer';
-
-        return {
-          ...t,
-          typeOverride: newTypeOverride,
-          isManuallyChanged: true,
-        };
-      }
-      return t;
-    }));
-  };
   // Determine if transaction is a transfer (not income or expense)
   // Transfers include: credit card payments, account transfers, CD deposits, etc.
   const isTransactionTransfer = (transaction) => {
@@ -306,11 +304,6 @@ function TransactionReview({ client, onComplete }) {
   const isTransactionIncome = (transaction, appliedRule = null) => {
     const name = (transaction.name || transaction.merchantName || '').toLowerCase();
     const amount = transaction.amount;
-
-    // Manual override takes highest precedence
-    if (transaction.typeOverride === 'income') return true;
-    if (transaction.typeOverride === 'transfer') return null;
-    if (transaction.typeOverride === 'expense') return false;
 
     // Rule Override: If a rule is applied, its is_income flag is the source of truth.
     if (appliedRule) {
@@ -406,17 +399,34 @@ function TransactionReview({ client, onComplete }) {
             />
           </div>
           
-          <div>
-            <label>Filter: </label>
-            <select 
-              value={filter} 
-              onChange={(e) => setFilter(e.target.value)}
-              style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
+          {/* Tabbed Interface for Filter */}
+          <div style={{ display: 'flex', border: '1px solid #ccc', borderRadius: '4px', overflow: 'hidden' }}>
+            <button
+              onClick={() => setFilter('unreviewed')}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: filter === 'unreviewed' ? '#667eea' : '#f0f0f0',
+                color: filter === 'unreviewed' ? 'white' : '#333',
+                border: 'none',
+                cursor: 'pointer',
+                fontWeight: filter === 'unreviewed' ? 'bold' : 'normal'
+              }}
             >
-              <option value="all">All Transactions ({transactions.length})</option>
-              <option value="unreviewed">Unreviewed ({unreviewedCount})</option>
-              <option value="reviewed">Reviewed ({transactions.length - unreviewedCount})</option>
-            </select>
+              Unreviewed ({unreviewedCount})
+            </button>
+            <button
+              onClick={() => setFilter('reviewed')}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: filter === 'reviewed' ? '#667eea' : '#f0f0f0',
+                color: filter === 'reviewed' ? 'white' : '#333',
+                border: 'none',
+                cursor: 'pointer',
+                fontWeight: filter === 'reviewed' ? 'bold' : 'normal'
+              }}
+            >
+              Reviewed ({transactions.length - unreviewedCount})
+            </button>
           </div>
           
           <div>
@@ -453,22 +463,6 @@ function TransactionReview({ client, onComplete }) {
                 {unreviewedCount} unreviewed
               </span>
             )}
-          </div>
-          
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <button 
-              onClick={markAllAsReviewed}
-              style={{
-                padding: '8px 16px',
-                background: '#667eea',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
-            >
-              Mark All as Reviewed
-            </button>
           </div>
         </div>
 
@@ -516,7 +510,7 @@ function TransactionReview({ client, onComplete }) {
                   marginRight: '20px' 
                 }}>
                   {(() => {
-                    const isTransfer = isTransactionTransfer(transaction) && transaction.typeOverride !== 'income';
+                    const isTransfer = isTransactionTransfer(transaction);
                     const isIncome = isTransactionIncome(transaction, transaction.appliedRule);
                     // eslint-disable-next-line no-unused-vars
                     const isExpense = !isTransfer && !isIncome;
@@ -555,7 +549,7 @@ function TransactionReview({ client, onComplete }) {
                   })()}
                 </div>
                 
-                <div style={{ flex: '1', minWidth: '200px', position: 'relative' }}>
+                <div style={{ flex: '1', minWidth: '200px' }}>
                   <select
                     value={transaction.finalCategory}
                     onChange={(e) => updateTransactionCategory(transaction._id, e.target.value)}
@@ -568,12 +562,12 @@ function TransactionReview({ client, onComplete }) {
                     }}
                   >
                     {(() => {
-                      const isTransfer = isTransactionTransfer(transaction) && transaction.typeOverride !== 'income';
+                      const isTransfer = isTransactionTransfer(transaction);
                       const isIncome = isTransactionIncome(transaction, transaction.appliedRule);
                       
                       // For transfers, show all categories (or could show a "Transfer" category)
                       if (isTransfer) {
-                        return ( // Use React.Fragment for keyless grouping
+                        return (
                           <>
                             <option value="uncategorized">Transfer</option>
                             {EXPENSE_CATEGORIES.map(cat => (
@@ -606,46 +600,7 @@ function TransactionReview({ client, onComplete }) {
                       );
                     })()}  
                   </select>
-
-                  {(() => {
-                    const isIncome = isTransactionIncome(transaction, transaction.appliedRule);
-                    const isTransfer = isTransactionTransfer(transaction) && transaction.typeOverride !== 'income';
-                    const buttonText = isTransfer ? 'Mark as Income' : (isIncome ? 'Mark as Transfer' : null);
-
-                    if (!buttonText) return null;
-
-                    return (
-                      <button
-                        onClick={() => toggleTransactionType(transaction._id)}
-                        style={{
-                          position: 'absolute', top: '100%', right: 0, fontSize: '10px',
-                          padding: '2px 4px', background: '#6c757d', color: 'white',
-                          border: 'none', borderRadius: '3px', cursor: 'pointer', marginTop: '2px'
-                        }}
-                      >
-                        {buttonText}
-                      </button>
-                    );
-                  })()}
                   
-                  {transaction.isReviewed && (
-                    <div style={{ 
-                      fontSize: '11px', 
-                      color: '#28a745', 
-                      marginTop: '2px' 
-                    }}>
-                      ✓ Reviewed
-                    </div>
-                  )}
-                  {transaction.appliedRule && (
-                    <div style={{
-                      fontSize: '10px',
-                      color: '#667eea',
-                      marginTop: '2px'
-                    }}>
-                      ✓ Reviewed
-                    </div>
-                  )}
                 </div>
               </div>
             ))
@@ -653,9 +608,9 @@ function TransactionReview({ client, onComplete }) {
         </div>
 
         {/* Save Button */}
-        <div style={{ marginTop: '20px', textAlign: 'center' }}>
+        <div style={{ marginTop: '20px', textAlign: 'center', display: 'flex', justifyContent: 'center', gap: '15px' }}>
           <button 
-            onClick={saveAndReviewAll} 
+            onClick={saveAndReviewAll}
             disabled={saving}
             style={{ 
               padding: '15px 30px', 
@@ -669,25 +624,7 @@ function TransactionReview({ client, onComplete }) {
               boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
             }}
           >
-            {saving ? 'Saving...' : 'Save & Mark All as Reviewed'}
-          </button>
-          
-          {onComplete && (
-            <button 
-              onClick={() => onComplete()}
-              style={{ 
-                padding: '15px 30px', 
-                backgroundColor: 'transparent', 
-                color: '#667eea', 
-                border: '2px solid #667eea', 
-                borderRadius: '8px',
-                fontSize: '16px',
-                fontWeight: '600',
-                cursor: 'pointer',
-                marginLeft: '15px'
-              }}
-            >
-              Done & Return to Dashboard
+            {saving ? 'Saving...' : 'Save & Apply to All'}
             </button>
           )}
         </div>

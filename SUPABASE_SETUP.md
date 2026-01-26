@@ -213,6 +213,9 @@ begin
 end;
 $$;
 
+-- Drop the existing trigger if it exists to avoid errors on re-running the script
+drop trigger if exists on_auth_user_created on auth.users;
+
 -- Create the trigger that fires after a new user is inserted into auth.users
 create trigger on_auth_user_created
   after insert on auth.users

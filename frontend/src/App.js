@@ -16,6 +16,8 @@ import {
   onAuthStateChange,
   validatePassword,
 } from './supabaseClient'; // Removed unused 'config' import
+import Footer from './components/Footer';
+import DataSecurityModal from './components/DataSecurityModal';
 
 function App() {
   // Helper function for email validation (moved from supabaseClient.js as requested)
@@ -45,6 +47,7 @@ function App() {
   const [isPasswordReset, setIsPasswordReset] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [showDataSecurityModal, setShowDataSecurityModal] = useState(false);
   const [showInactivityWarning, setShowInactivityWarning] = useState(false);
 
   // Auth form state
@@ -664,6 +667,7 @@ function App() {
     );
   }
 
+
   // Login/Register/ForgotPassword Screen
   if (step === 'login') {
     return (
@@ -984,6 +988,10 @@ function App() {
     );
   }
 
+  const handleOpenDataSecurityModal = () => setShowDataSecurityModal(true);
+  const handleCloseDataSecurityModal = () => setShowDataSecurityModal(false);
+
+
   // Plaid connecting step removed - using statement upload instead
 
   // Review Screen
@@ -1007,6 +1015,7 @@ function App() {
             }}
           />
         </div>
+        <Footer onOpenDataSecurityModal={handleOpenDataSecurityModal} />
       </div>
     );
   }
@@ -1321,6 +1330,7 @@ function App() {
 
         {/* Statement Upload Section */}
         <StatementUpload client={client} />
+        <DataSecurityModal isOpen={showDataSecurityModal} onClose={handleCloseDataSecurityModal} />
       </div>
     </div>
   );

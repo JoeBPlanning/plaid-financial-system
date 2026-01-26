@@ -606,6 +606,68 @@ app.post('/api/clients/:clientId/bulk-update-by-keyword', requireAuth, ensureCli
   }
 });
 
+// Bulk update transactions by keyword (merchant name)
+app.post('/api/clients/:clientId/bulk-update-by-keyword', requireAuth, ensureClientOwnership, async (req, res) => {
+  try {
+    const clientId = req.user.clientId;
+    const { updates } = req.body; // updates is an array of { keyword, newCategory, isIncome }
+
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({ success: false, error: 'No updates provided' });
+    }
+
+    let totalModifiedCount = 0;
+
+    for (const update of updates) {
+      const { keyword, newCategory } = update;
+      if (!keyword || !newCategory) {
+        console.warn('Skipping bulk update for invalid entry:', update);
+        continue;
+      }
+
+      // Find all transactions for this client matching the keyword (merchant name or name)
+      // Supabase's .match() doesn't directly support $or for complex conditions in update.
+      // We need to fetch the IDs first, then update by ID.
+      const { data: matchingTransactions, error: findError } = await supabase
+        .from('transactions')
+        .select('id') // Select only the ID
+        .eq('clientId', clientId)
+        .or(`merchantName.ilike.%${keyword}%,name.ilike.%${keyword}%`); // Case-insensitive LIKE
+
+      if (findError) {
+        console.error(`Error finding transactions for keyword "${keyword}":`, findError);
+        continue;
+      }
+
+      if (matchingTransactions.length > 0) {
+        const transactionIdsToUpdate = matchingTransactions.map(t => t.id);
+
+        const { count, error: updateError } = await supabase
+          .from('transactions')
+          .update({ userCategory: newCategory, isReviewed: true })
+          .in('id', transactionIdsToUpdate)
+          .select('id', { count: 'exact' }); // Get exact count of updated rows
+
+        if (updateError) {
+          console.error(`Error updating transactions for keyword "${keyword}":`, updateError);
+        } else {
+          totalModifiedCount += count;
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Bulk updated ${totalModifiedCount} transactions across all matching merchants.`,
+      modifiedCount: totalModifiedCount,
+    });
+
+  } catch (error) {
+    console.error('Error in bulk-update-by-keyword:', error);
+    res.status(500).json({ success: false, error: 'Failed to perform bulk update.' });
+  }
+});
+
 // =============================================================================
 // CLIENT ROUTES - Enhanced
 // =============================================================================

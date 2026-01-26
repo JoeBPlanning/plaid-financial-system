@@ -624,8 +624,7 @@ function TransactionReview({ client, onComplete }) {
             }}
           >
             {saving ? 'Saving...' : 'Save & Apply to All'}
-            </button>
-          )}
+          </button>
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from './api';
 // Plaid integration removed - using statement upload + OCR instead
 // Chart.js imports removed - investments functionality removed
@@ -12,14 +12,18 @@ import {
   signIn,
   signOut,
   getSession,
-  resetPassword,
   updatePassword,
   onAuthStateChange,
   validatePassword,
-} from './supabaseClient';
-import config from './config';
+} from './supabaseClient'; // Removed unused 'config' import
 
 function App() {
+  // Helper function for email validation (moved from supabaseClient.js as requested)
+  const validateEmail = (email) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
   const [step, setStep] = useState('login');
   const [authMode, setAuthMode] = useState('login'); // 'login', 'register', 'forgot-password'
   // eslint-disable-next-line no-unused-vars
@@ -138,31 +142,95 @@ function App() {
   }, [user, session]);
 
   // Load monthly summary for client
-  const loadMonthlySummary = useCallback(async (clientId, month = null) => {
+  // Load monthly summary for client
+  const loadMonthlySummary = useCallback(async (clientId, month = null) => { // Wrapped in useCallback
     const targetMonth = month || selectedMonth;
     try {
-      const response = await api.get(`/api/clients/${clientId}/summaries?limit=12`);
+      // Try to get summary for specific month
+      const response = await api.get(`/api/clients/${clientId}/summaries?limit=12`); // cite: 1
       // ... (rest of loadMonthlySummary logic) ...
-      setMonthlySummary(summary);
+      if (response.data.summaries && response.data.summaries.length > 0) {
+        // Find summary for the target month
+        const monthSummary = response.data.summaries.find(s => s.monthYear === targetMonth);
+        if (monthSummary) {
+          setMonthlySummary(monthSummary);
+          return;
+        }
+        // If not found, use the most recent one as a fallback
+        setMonthlySummary(response.data.summaries[0]);
+        return;
+      }
+      
+      // If no summary exists, generate one using process-transactions
+      try {
+        const processResponse = await api.post(`/api/process-transactions/${clientId}`, {
+          targetMonth: targetMonth,
+          useUserCategories: true
+        });
+        if (processResponse.data.summary) {
+          setMonthlySummary(processResponse.data.summary);
+        } else {
+          // Fallback: try regenerate-summary endpoint
+          const genResponse = await api.post(`/api/admin/regenerate-summary/${clientId}`, {
+            month: targetMonth
+          });
+          if (genResponse.data.success && genResponse.data.summary) {
+            setMonthlySummary(genResponse.data.summary);
+          } else {
+            // Last resort: reload summaries
+            const reloadResponse = await api.get(`/api/clients/${clientId}/summaries?limit=1`);
+            if (reloadResponse.data.summaries && reloadResponse.data.summaries.length > 0) {
+              setMonthlySummary(reloadResponse.data.summaries[0]);
+            }
+          }
+        }
+      } catch (genError) {
+        console.error('Could not generate summary:', genError);
+        // Try to load any existing summary as last resort
+        const fallbackResponse = await api.get(`/api/clients/${clientId}/summaries?limit=1`);
+        if (fallbackResponse.data.summaries && fallbackResponse.data.summaries.length > 0) {
+          setMonthlySummary(fallbackResponse.data.summaries[0]);
+        }
+      }
     } catch (error) {
       console.error('Error loading monthly summary:', error);
+      // Try to process transactions as a last resort
+      try {
+        const processResponse = await api.post(`/api/process-transactions/${clientId}`, { // cite: 1
+          targetMonth: targetMonth, // cite: 1
+          useUserCategories: true // cite: 1
+        }); // cite: 1
+        if (processResponse.data.summary) { // cite: 1
+          setMonthlySummary(processResponse.data.summary);
+        }
+      } catch (processError) {
+        console.error('Could not process transactions:', processError);
+      }
     }
-  }, [api, setMonthlySummary, selectedMonth]);
+  }, [api, setMonthlySummary, selectedMonth]); // Dependencies for useCallback
 
   // Load current net worth (always up-to-date)
-  const loadCurrentNetWorth = useCallback(async (clientId) => {
+  const loadCurrentNetWorth = useCallback(async (clientId) => { // Wrapped in useCallback
     try {
       // ... (rest of loadCurrentNetWorth logic) ...
-      setCurrentNetWorth(processResponse.data.summary.netWorth);
-    } catch (error) {
+      // Process transactions for current month to get latest net worth (full logic)
+      const currentMonth = new Date().toISOString().slice(0, 7);
+      const processResponse = await api.post(`/api/process-transactions/${clientId}`, { // cite: 1
+        targetMonth: currentMonth, // cite: 1
+        useUserCategories: true // cite: 1
+      }); // cite: 1
+      if (processResponse.data.summary && processResponse.data.summary.netWorth) { // cite: 1
+        setCurrentNetWorth(processResponse.data.summary.netWorth); // cite: 1
+      }
+    } catch (error) { // cite: 1
       console.error('Error loading current net worth:', error);
-    }
-  }, [api, setCurrentNetWorth]);
+    } // cite: 1
+  }, [setCurrentNetWorth]); // Removed 'api'
 
   // Check for unreviewed transactions
-  const checkUnreviewedTransactions = useCallback(async (clientId) => {
+  const checkUnreviewedTransactions = useCallback(async (clientId) => { // Wrapped in useCallback
     try {
-      const currentMonth = new Date().toISOString().slice(0, 0);
+      const currentMonth = new Date().toISOString().slice(0, 7); // Corrected slice to get YYYY-MM
       const response = await api.get(
         `/api/clients/${clientId}/transactions?month=${currentMonth}`
       );
@@ -180,9 +248,9 @@ function App() {
         }, 2000);
       }
     } catch (error) {
-      console.log('Error checking unreviewed transactions:', error);
+      console.error('Error checking unreviewed transactions:', error);
     }
-  }, [api, setUnreviewedCount, setShowReview, setStep]);
+  }, [setUnreviewedCount, setShowReview, setStep]);
 
   // Check session on mount
   useEffect(() => {
@@ -259,7 +327,7 @@ function App() {
     return () => {
       authListener?.subscription?.unsubscribe();
     };
-  }, [loadMonthlySummary, checkUnreviewedTransactions, loadCurrentNetWorth, selectedMonth]);
+  }, [loadMonthlySummary, checkUnreviewedTransactions, loadCurrentNetWorth, selectedMonth, setAuthLoading, setIsPasswordReset, setStep, setSession, setUser, setClient, setMonthlySummary, validateEmail, getSession, onAuthStateChange, signOut]); // Cleaned up dependencies
 
   // Watch password for strength validation
   useEffect(() => {
@@ -413,7 +481,10 @@ function App() {
         return;
       }
 
-      const { error } = await resetPassword(authForm.email);
+      // Moved resetPassword logic here to avoid importing from supabaseClient.js
+      const { error } = await supabase.auth.resetPasswordForEmail(authForm.email, {
+        redirectTo: `${window.location.origin}/reset-password`
+      });
 
       if (error) {
         setAuthError(error.message);
@@ -506,8 +577,8 @@ function App() {
     if (client && step === 'dashboard') {
       loadCurrentNetWorth(client.clientId);
       // loadInvestments(client.clientId); // Disabled - investments not needed
-    }
-  }, [client, step]);
+    } // Added loadCurrentNetWorth
+  }, [client, step, loadCurrentNetWorth]);
 
   // Plaid integration removed - users upload statements instead
 

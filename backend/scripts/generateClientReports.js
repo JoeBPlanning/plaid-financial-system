@@ -216,10 +216,13 @@ async function renderStackedExpenseChart(summaries) {
 /**
  * Render pie chart of expense categories (aggregated)
  */
-async function renderExpensePieChart(summaries, clientName) {
-  const width = 700;
-  const height = 500;
+async function renderExpensePieChart(summaries, dateRange) {
+  const width = 600;
+  const height = 400;
   const chartJSNodeCanvas = new ChartJSNodeCanvas({ width, height });
+  
+  // Categories to EXCLUDE from expense totals (transfers, not real expenses)
+  const EXCLUDED_CATEGORIES = ['transfers', 'loanPayment'];
   
   // Aggregate expenses across all months
   const categoryTotals = {};
@@ -228,6 +231,9 @@ async function renderExpensePieChart(summaries, clientName) {
     if (!summary.cashFlow) return;
     
     Object.keys(CATEGORY_LABELS).forEach(cat => {
+      // Skip excluded categories
+      if (EXCLUDED_CATEGORIES.includes(cat)) return;
+      
       const amount = summary.cashFlow[cat] || 0;
       if (amount > 0) {
         categoryTotals[cat] = (categoryTotals[cat] || 0) + amount;
@@ -242,11 +248,7 @@ async function renderExpensePieChart(summaries, clientName) {
   
   const totalExpenses = sortedCategories.reduce((sum, [_, amount]) => sum + amount, 0);
   
-  const labels = sortedCategories.map(([cat, amount]) => {
-    const pct = ((amount / totalExpenses) * 100).toFixed(1);
-    return `${CATEGORY_LABELS[cat] || cat} (${pct}%)`;
-  });
-  
+  const labels = sortedCategories.map(([cat]) => CATEGORY_LABELS[cat] || cat);
   const data = sortedCategories.map(([_, amount]) => amount);
   
   const configuration = {
@@ -265,17 +267,33 @@ async function renderExpensePieChart(summaries, clientName) {
       plugins: {
         title: {
           display: true,
-          text: `Expense Breakdown - Total: $${totalExpenses.toLocaleString()}`,
-          font: { size: 18, weight: 'bold' },
+          text: [`Expense Breakdown`, `${dateRange} | Total: $${totalExpenses.toLocaleString()}`],
+          font: { size: 16, weight: 'bold' },
           color: '#333',
-          padding: { bottom: 20 }
+          padding: { bottom: 10 }
         },
         legend: {
           position: 'right',
           labels: {
             boxWidth: 12,
-            padding: 10,
-            font: { size: 10 }
+            padding: 8,
+            font: { size: 9 },
+            generateLabels: (chart) => {
+              const data = chart.data;
+              if (data.labels.length && data.datasets.length) {
+                return data.labels.map((label, i) => {
+                  const value = data.datasets[0].data[i];
+                  const pct = ((value / totalExpenses) * 100).toFixed(1);
+                  return {
+                    text: `${label}: $${value.toLocaleString()} (${pct}%)`,
+                    fillStyle: data.datasets[0].backgroundColor[i],
+                    hidden: false,
+                    index: i
+                  };
+                });
+              }
+              return [];
+            }
           }
         }
       }
@@ -303,20 +321,28 @@ async function generateClientPDF(client, summaries, outputPath) {
     try {
       const doc = new PDFDocument({
         size: 'LETTER',
-        margins: { top: 50, bottom: 50, left: 50, right: 50 },
+        margins: { top: 50, bottom: 70, left: 50, right: 50 },
         bufferPages: true
       });
       
       const writeStream = fs.createWriteStream(outputPath);
       doc.pipe(writeStream);
       
+      // Categories to EXCLUDE from expense totals (transfers, not real expenses)
+      const EXCLUDED_CATEGORIES = ['transfers', 'loanPayment'];
+      
       // Determine report period for title
       const reportMonth = summaries.length > 0 
         ? moment(summaries[0].monthYear, 'YYYY-MM').format('MMMM YYYY')
         : moment().format('MMMM YYYY');
       
+      // Date range for charts
+      const dateRange = summaries.length > 0 
+        ? `${moment(summaries[summaries.length - 1].monthYear, 'YYYY-MM').format('MMM YYYY')} - ${moment(summaries[0].monthYear, 'YYYY-MM').format('MMM YYYY')}`
+        : 'No data available';
+      
       // ==========================================
-      // TITLE PAGE
+      // PAGE 1: TITLE PAGE
       // ==========================================
       
       // Light gray background
@@ -325,27 +351,32 @@ async function generateClientPDF(client, summaries, outputPath) {
       // Try to load logo
       const logoPath = path.join(__dirname, '..', 'assets', 'logo.png');
       if (fs.existsSync(logoPath)) {
-        doc.image(logoPath, 156, 180, { width: 300, align: 'center' });
-        doc.y = 420;
+        doc.image(logoPath, 156, 150, { width: 300 });
+        doc.y = 380;
       } else {
-        // Fallback: just use text if no logo
-        doc.y = 280;
+        doc.y = 250;
+        // Fallback: company name as text
+        doc
+          .fillColor(COLORS.primary)
+          .fontSize(36)
+          .font('Helvetica-Bold')
+          .text('B', { align: 'center' });
+        doc.y = 320;
       }
       
       // Company name
       doc
         .fillColor('#2c3e50')
-        .fontSize(28)
+        .fontSize(24)
         .font('Helvetica-Bold')
-        .text('Bautista Planning', { align: 'center' })
-        .text('and Analytics, LLC', { align: 'center' });
+        .text('Bautista Planning and Analytics, LLC', { align: 'center' });
       
-      doc.moveDown(2);
+      doc.moveDown(3);
       
       // Report title
       doc
         .fillColor(COLORS.primary)
-        .fontSize(32)
+        .fontSize(36)
         .font('Helvetica-Bold')
         .text('Progress Report', { align: 'center' });
       
@@ -353,27 +384,28 @@ async function generateClientPDF(client, summaries, outputPath) {
       
       doc
         .fillColor('#2c3e50')
-        .fontSize(24)
+        .fontSize(22)
         .font('Helvetica')
         .text(reportMonth, { align: 'center' });
       
-      doc.moveDown(2);
+      doc.moveDown(3);
       
       // Client name
       doc
-        .fontSize(18)
+        .fontSize(16)
         .fillColor('#555')
         .text(`Prepared for: ${client.name}`, { align: 'center' });
       
-      // Disclaimer at bottom
+      // Disclaimer at bottom (fixed position)
       doc
-        .fontSize(10)
-        .fillColor('#888')
+        .fontSize(9)
+        .fillColor('#999')
+        .font('Helvetica-Oblique')
         .text(
           'These graphics are projections and can change.',
-          50,
-          700,
-          { align: 'center', width: 512 }
+          0,
+          730,
+          { align: 'center', width: 612 }
         );
       
       // ==========================================
@@ -381,36 +413,22 @@ async function generateClientPDF(client, summaries, outputPath) {
       // ==========================================
       doc.addPage();
       
-      // Header
-      doc
-        .rect(0, 0, 612, 80)
-        .fill(COLORS.primary);
+      // Header bar
+      doc.rect(0, 0, 612, 70).fill(COLORS.primary);
       
       doc
         .fillColor('white')
-        .fontSize(24)
+        .fontSize(22)
         .font('Helvetica-Bold')
-        .text('Financial Summary Report', 50, 25, { align: 'center', width: 512 });
-      
-      doc
-        .fontSize(14)
-        .font('Helvetica')
-        .text(client.name, 50, 52, { align: 'center', width: 512 });
-      
-      doc.fillColor('#333');
-      doc.y = 100;
-      
-      // Report info
-      const dateRange = summaries.length > 0 
-        ? `${moment(summaries[summaries.length - 1].monthYear, 'YYYY-MM').format('MMM YYYY')} - ${moment(summaries[0].monthYear, 'YYYY-MM').format('MMM YYYY')}`
-        : 'No data available';
+        .text('Financial Summary', 50, 22, { align: 'center', width: 512 });
       
       doc
         .fontSize(12)
         .font('Helvetica')
-        .text(`Report Period: ${dateRange}`, { align: 'center' })
-        .text(`Generated: ${moment().format('MMMM D, YYYY')}`, { align: 'center' })
-        .moveDown(2);
+        .text(`${client.name} | ${dateRange}`, 50, 47, { align: 'center', width: 512 });
+      
+      doc.fillColor('#333');
+      doc.y = 90;
       
       if (summaries.length === 0) {
         doc
@@ -421,76 +439,93 @@ async function generateClientPDF(client, summaries, outputPath) {
         return;
       }
       
-      // Calculate totals
+      // Calculate totals (excluding transfers)
       let totalIncome = 0;
       let totalExpenses = 0;
       
       summaries.forEach(s => {
         if (s.cashFlow) {
           totalIncome += s.cashFlow.income || 0;
-          totalExpenses += s.cashFlow.totalExpenses || 0;
+          // Calculate expenses excluding transfers
+          Object.keys(CATEGORY_LABELS).forEach(cat => {
+            if (!EXCLUDED_CATEGORIES.includes(cat)) {
+              totalExpenses += s.cashFlow[cat] || 0;
+            }
+          });
         }
       });
       
-      // Summary stats
+      // Summary stats in a box
       doc
-        .fontSize(16)
-        .font('Helvetica-Bold')
-        .text('Summary Statistics', { underline: true })
-        .moveDown(0.5);
+        .rect(50, doc.y, 512, 80)
+        .fillAndStroke('#f8f9fa', '#e1e5e9');
       
-      doc
-        .fontSize(12)
-        .font('Helvetica')
-        .text(`Total Income: $${totalIncome.toLocaleString()}`)
-        .text(`Total Expenses: $${totalExpenses.toLocaleString()}`)
-        .text(`Net Savings: $${(totalIncome - totalExpenses).toLocaleString()}`)
-        .text(`Months Analyzed: ${summaries.length}`)
-        .moveDown(2);
+      const statsY = doc.y + 15;
+      doc.fillColor('#333').fontSize(11).font('Helvetica');
+      
+      doc.text(`Total Income: $${totalIncome.toLocaleString()}`, 70, statsY);
+      doc.text(`Total Expenses: $${totalExpenses.toLocaleString()}`, 70, statsY + 20);
+      
+      const netSavings = totalIncome - totalExpenses;
+      doc.fillColor(netSavings >= 0 ? '#28a745' : '#dc3545');
+      doc.text(`Net Savings: $${netSavings.toLocaleString()}`, 70, statsY + 40);
+      
+      doc.fillColor('#666').text(`Months Analyzed: ${summaries.length}`, 350, statsY + 20);
+      doc.text(`Generated: ${moment().format('MMM D, YYYY')}`, 350, statsY + 40);
+      
+      doc.y = statsY + 80;
+      doc.fillColor('#333');
       
       // Stacked bar chart
       console.log(`  📊 Generating expense bar chart...`);
       const barChart = await renderStackedExpenseChart(summaries);
       
-      doc
-        .fontSize(14)
-        .font('Helvetica-Bold')
-        .text('Monthly Expenses by Category')
-        .moveDown(0.5);
+      doc.image(barChart, 50, doc.y, { width: 512, height: 280 });
       
-      doc.image(barChart, 50, doc.y, { width: 512 });
-      doc.y += 280;
-      
-      // New page for pie chart
+      // ==========================================
+      // PAGE 3: Pie Chart with Category Details
+      // ==========================================
       doc.addPage();
-      doc.y = 50;
+      
+      // Header bar
+      doc.rect(0, 0, 612, 70).fill(COLORS.primary);
+      
+      doc
+        .fillColor('white')
+        .fontSize(22)
+        .font('Helvetica-Bold')
+        .text('Expense Breakdown', 50, 22, { align: 'center', width: 512 });
+      
+      doc
+        .fontSize(12)
+        .font('Helvetica')
+        .text(`${client.name} | ${dateRange}`, 50, 47, { align: 'center', width: 512 });
+      
+      doc.fillColor('#333');
+      doc.y = 85;
       
       // Pie chart
       console.log(`  📊 Generating expense pie chart...`);
-      const pieChart = await renderExpensePieChart(summaries, client.name);
+      const pieChart = await renderExpensePieChart(summaries, dateRange);
       
-      doc
-        .fontSize(14)
-        .font('Helvetica-Bold')
-        .text('Expense Breakdown by Category')
-        .moveDown(0.5);
-      
-      doc.image(pieChart, 50, doc.y, { width: 512 });
-      doc.y += 380;
+      doc.image(pieChart, 56, doc.y, { width: 500, height: 340 });
+      doc.y += 355;
       
       // Category details table
-      doc.moveDown();
       doc
-        .fontSize(14)
+        .fontSize(12)
         .font('Helvetica-Bold')
-        .text('Category Details')
-        .moveDown(0.5);
+        .fillColor('#333')
+        .text('Category Details', 50, doc.y);
       
-      // Aggregate category totals
+      doc.y += 20;
+      
+      // Aggregate category totals (excluding transfers)
       const categoryTotals = {};
       summaries.forEach(s => {
         if (!s.cashFlow) return;
         Object.keys(CATEGORY_LABELS).forEach(cat => {
+          if (EXCLUDED_CATEGORIES.includes(cat)) return;
           const amount = s.cashFlow[cat] || 0;
           if (amount > 0) {
             categoryTotals[cat] = (categoryTotals[cat] || 0) + amount;
@@ -502,26 +537,49 @@ async function generateClientPDF(client, summaries, outputPath) {
         .filter(([_, amount]) => amount > 0)
         .sort((a, b) => b[1] - a[1]);
       
-      doc.fontSize(10).font('Helvetica');
+      // Two-column layout for category details
+      doc.fontSize(9).font('Helvetica');
+      const colWidth = 250;
+      const startX = 50;
+      const startY = doc.y;
+      let col = 0;
+      let row = 0;
       
-      sortedCategories.forEach(([cat, amount]) => {
+      sortedCategories.forEach(([cat, amount], idx) => {
         const pct = totalExpenses > 0 ? ((amount / totalExpenses) * 100).toFixed(1) : 0;
-        const monthlyAvg = (amount / summaries.length).toFixed(2);
-        doc.text(`${CATEGORY_LABELS[cat] || cat}: $${amount.toLocaleString()} (${pct}%) - Avg: $${monthlyAvg}/month`);
+        const monthlyAvg = Math.round(amount / summaries.length).toLocaleString();
+        
+        const x = startX + (col * colWidth);
+        const y = startY + (row * 16);
+        
+        doc.fillColor(COLORS.categoryColors[idx % COLORS.categoryColors.length]);
+        doc.rect(x, y + 2, 8, 8).fill();
+        
+        doc.fillColor('#333');
+        doc.text(`${CATEGORY_LABELS[cat]}: $${amount.toLocaleString()} (${pct}%)`, x + 12, y, { width: colWidth - 20 });
+        
+        col++;
+        if (col >= 2) {
+          col = 0;
+          row++;
+        }
       });
       
-      // Add page numbers
+      // Add page numbers (skip title page)
       const pages = doc.bufferedPageRange();
       for (let i = 0; i < pages.count; i++) {
         doc.switchToPage(i);
+        if (i === 0) continue; // Skip title page
+        
         doc
           .fontSize(8)
-          .fillColor('#666')
+          .fillColor('#888')
+          .font('Helvetica')
           .text(
-            `Bautista Planning and Analytics | Page ${i + 1} of ${pages.count}`,
-            50,
-            742,
-            { align: 'center', width: 512 }
+            `Bautista Planning and Analytics, LLC | Page ${i} of ${pages.count - 1}`,
+            0,
+            750,
+            { align: 'center', width: 612 }
           );
       }
       

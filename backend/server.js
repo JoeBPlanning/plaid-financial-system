@@ -2097,25 +2097,24 @@ app.post('/api/admin/statements/:documentId/reject', requireAuth, requireAdmin, 
 // =============================================================================
 
 // Plaid routes
-// Plaid endpoint disabled - using statement upload + OCR instead
+// Plaid endpoints disabled
 app.post('/api/create_link_token', requireAuth, plaidLimiter, async (req, res) => {
   res.status(404).json({ 
-    error: 'Plaid integration has been removed. Please upload account statements instead.' 
+    error: 'Plaid integration has been removed.' 
   });
 });
 
-// Plaid endpoint disabled - using statement upload + OCR instead
+// Plaid endpoints disabled
 app.post('/api/exchange_public_token', requireAuth, plaidLimiter, async (req, res) => {
   res.status(404).json({ 
-    error: 'Plaid integration has been removed. Please upload account statements instead.' 
+    error: 'Plaid integration has been removed.' 
   });
 });
 
-// Add Plaid token to client
-// Plaid endpoint disabled - using statement upload + OCR instead
+// Plaid endpoints disabled
 app.post('/api/clients/:clientId/plaid-token', requireAuth, ensureClientOwnership, async (req, res) => {
   res.status(404).json({ 
-    error: 'Plaid integration has been removed. Please upload account statements instead.' 
+    error: 'Plaid integration has been removed.' 
   });
 });
 

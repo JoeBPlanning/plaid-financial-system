@@ -5,7 +5,6 @@ import api from './api';
 import './App.css';
 import AdminDashboard from './AdminDashboard';
 import TransactionReview from './TransactionReview';
-import StatementUpload from './components/StatementUpload';
 import {
   supabase,
   signUp,
@@ -1319,7 +1318,7 @@ function App() {
         ) : (
           <div className="no-data">
             <h3>No Financial Data Yet</h3>
-            <p>Connect your accounts to get started.</p>
+            <p>Click "Refresh Financial Data" to sync your transactions, or "Review Transactions" to categorize them.</p>
           </div>
         )}
 

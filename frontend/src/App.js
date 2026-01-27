@@ -1245,14 +1245,7 @@ function App() {
               
               <div className="summary-grid">
               <div className="summary-section">
-                <h3>Expenses</h3>
-                <div className="summary-items">
-                  <div>Total Expenses: {formatCurrency(monthlySummary.cashFlow?.totalExpenses || 0)}</div>
-                </div>
-              </div>
-
-              <div className="summary-section">
-                <h3>Expenses</h3>
+                <h3>Expenses by Category</h3>
                 <div className="summary-items">
                   <div>Housing: {formatCurrency(monthlySummary.cashFlow?.housing || 0)}</div>
                   <div>Auto & Transport: {formatCurrency(monthlySummary.cashFlow?.autoAndTransport || 0)}</div>
@@ -1264,10 +1257,24 @@ function App() {
                   <div>Health & Fitness: {formatCurrency(monthlySummary.cashFlow?.healthAndFitness || 0)}</div>
                   <div>Travel: {formatCurrency(monthlySummary.cashFlow?.travel || 0)}</div>
                   <div>Insurance: {formatCurrency(monthlySummary.cashFlow?.insurance || 0)}</div>
-                  <div>Loan Payment: {formatCurrency(monthlySummary.cashFlow?.loanPayment || 0)}</div>
                   <div>Charitable Giving: {formatCurrency(monthlySummary.cashFlow?.charitableGiving || 0)}</div>
                   <div>Fees & Charges: {formatCurrency(monthlySummary.cashFlow?.feeAndCharges || 0)}</div>
-                  <div>Other: {formatCurrency(monthlySummary.cashFlow?.uncategorized || 0)}</div>
+                  <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #e1e5e9', fontWeight: 'bold' }}>
+                    Total: {formatCurrency(
+                      (monthlySummary.cashFlow?.housing || 0) +
+                      (monthlySummary.cashFlow?.autoAndTransport || 0) +
+                      (monthlySummary.cashFlow?.groceries || 0) +
+                      (monthlySummary.cashFlow?.diningOut || 0) +
+                      (monthlySummary.cashFlow?.shopping || 0) +
+                      (monthlySummary.cashFlow?.billAndUtilities || 0) +
+                      (monthlySummary.cashFlow?.entertainment || 0) +
+                      (monthlySummary.cashFlow?.healthAndFitness || 0) +
+                      (monthlySummary.cashFlow?.travel || 0) +
+                      (monthlySummary.cashFlow?.insurance || 0) +
+                      (monthlySummary.cashFlow?.charitableGiving || 0) +
+                      (monthlySummary.cashFlow?.feeAndCharges || 0)
+                    )}
+                  </div>
                 </div>
               </div>
 

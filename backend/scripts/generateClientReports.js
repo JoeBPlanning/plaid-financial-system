@@ -310,6 +310,77 @@ async function generateClientPDF(client, summaries, outputPath) {
       const writeStream = fs.createWriteStream(outputPath);
       doc.pipe(writeStream);
       
+      // Determine report period for title
+      const reportMonth = summaries.length > 0 
+        ? moment(summaries[0].monthYear, 'YYYY-MM').format('MMMM YYYY')
+        : moment().format('MMMM YYYY');
+      
+      // ==========================================
+      // TITLE PAGE
+      // ==========================================
+      
+      // Light gray background
+      doc.rect(0, 0, 612, 792).fill('#f5f7fa');
+      
+      // Try to load logo
+      const logoPath = path.join(__dirname, '..', 'assets', 'logo.png');
+      if (fs.existsSync(logoPath)) {
+        doc.image(logoPath, 156, 180, { width: 300, align: 'center' });
+        doc.y = 420;
+      } else {
+        // Fallback: just use text if no logo
+        doc.y = 280;
+      }
+      
+      // Company name
+      doc
+        .fillColor('#2c3e50')
+        .fontSize(28)
+        .font('Helvetica-Bold')
+        .text('Bautista Planning', { align: 'center' })
+        .text('and Analytics, LLC', { align: 'center' });
+      
+      doc.moveDown(2);
+      
+      // Report title
+      doc
+        .fillColor(COLORS.primary)
+        .fontSize(32)
+        .font('Helvetica-Bold')
+        .text('Progress Report', { align: 'center' });
+      
+      doc.moveDown(0.5);
+      
+      doc
+        .fillColor('#2c3e50')
+        .fontSize(24)
+        .font('Helvetica')
+        .text(reportMonth, { align: 'center' });
+      
+      doc.moveDown(2);
+      
+      // Client name
+      doc
+        .fontSize(18)
+        .fillColor('#555')
+        .text(`Prepared for: ${client.name}`, { align: 'center' });
+      
+      // Disclaimer at bottom
+      doc
+        .fontSize(10)
+        .fillColor('#888')
+        .text(
+          'These graphics are projections and can change.',
+          50,
+          700,
+          { align: 'center', width: 512 }
+        );
+      
+      // ==========================================
+      // PAGE 2: Summary & Bar Chart
+      // ==========================================
+      doc.addPage();
+      
       // Header
       doc
         .rect(0, 0, 612, 80)

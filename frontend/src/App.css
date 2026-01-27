@@ -1,7 +1,8 @@
 .app {
   min-height: 100vh;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  display: flex; /* Added for sticky footer */
+  display: flex;
+  flex-direction: column; /* Stack header and content vertically */
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
 }
 

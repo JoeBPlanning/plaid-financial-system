@@ -285,10 +285,10 @@ function App() {
           setClient(clientData);
           setStep('dashboard');
           // Load dashboard data (disabled temporarily for debugging)
-          console.log('Session restored - skipping data load');
-          // await loadMonthlySummary(session.user.id, selectedMonth);
-          // await checkUnreviewedTransactions(session.user.id);
-          // await loadInvestments(session.user.id);
+          console.log('Session restored - fetching user data...');
+          await loadMonthlySummary(session.user.id, selectedMonth);
+          await checkUnreviewedTransactions(session.user.id);
+          await loadCurrentNetWorth(session.user.id);
         }
       } catch (error) {
         console.error('Session check error:', error);
@@ -451,11 +451,10 @@ function App() {
       setStep('dashboard');
 
       // Load dashboard data (disabled temporarily for debugging)
-      // TODO: Re-enable once backend is properly configured
-      console.log('Skipping data load - user logged in successfully');
-      // await loadMonthlySummary(data.user.id, selectedMonth);
-      // await checkUnreviewedTransactions(data.user.id);
-      // await loadInvestments(data.user.id);
+      console.log('User logged in successfully - fetching user data...');
+      await loadMonthlySummary(data.user.id, selectedMonth);
+      await checkUnreviewedTransactions(data.user.id);
+      await loadCurrentNetWorth(data.user.id);
 
     } catch (error) {
       console.error('Login error:', error);
@@ -1320,16 +1319,11 @@ function App() {
         ) : (
           <div className="no-data">
             <h3>No Financial Data Yet</h3>
-            <p>Upload your account statements (bank statements, credit card statements) to start generating monthly financial reports.</p>
-            <p style={{ marginTop: '10px', fontSize: '14px', color: '#666' }}>
-              Use the "Upload Account Statements" section below to upload your statements. We'll extract transaction data using OCR and data parsing.
-            </p>
+            <p>Connect your accounts to get started.</p>
           </div>
         )}
 
 
-        {/* Statement Upload Section */}
-        <StatementUpload client={client} />
         <DataSecurityModal isOpen={showDataSecurityModal} onClose={handleCloseDataSecurityModal} />
       </div>
     </div>

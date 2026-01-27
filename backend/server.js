@@ -570,7 +570,7 @@ app.post('/api/clients/:clientId/bulk-update-by-keyword', requireAuth, ensureCli
         .from('transactions')
         .select('id') // Select only the ID
         .eq('clientId', clientId)
-        .or(`merchantName.ilike.%${keyword}%,name.ilike.%${keyword}%`); // Case-insensitive LIKE
+        .or(`merchant_name.ilike.%${keyword}%,name.ilike.%${keyword}%`); // Case-insensitive LIKE
 
       if (findError) {
         console.error(`Error finding transactions for keyword "${keyword}":`, findError);
@@ -632,7 +632,7 @@ app.post('/api/clients/:clientId/bulk-update-by-keyword', requireAuth, ensureCli
         .from('transactions')
         .select('id') // Select only the ID
         .eq('clientId', clientId)
-        .or(`merchantName.ilike.%${keyword}%,name.ilike.%${keyword}%`); // Case-insensitive LIKE
+        .or(`merchant_name.ilike.%${keyword}%,name.ilike.%${keyword}%`); // Case-insensitive LIKE
 
       if (findError) {
         console.error(`Error finding transactions for keyword "${keyword}":`, findError);

@@ -412,7 +412,7 @@ async function generateClientPDF(client, summaries, outputPath) {
       doc
         .fontSize(18)
         .fillColor('#555')
-        .text(`Prepared for: ${client.name}`, 50, 490, { align: 'center', width: 512 });
+        .text(`Prepared for: ${client.name}`, 50, 562, { align: 'center', width: 512 });
       
       // Disclaimer at bottom
       doc

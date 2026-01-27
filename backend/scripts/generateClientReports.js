@@ -351,61 +351,45 @@ async function generateClientPDF(client, summaries, outputPath) {
       // Try to load logo
       const logoPath = path.join(__dirname, '..', 'assets', 'logo.png');
       if (fs.existsSync(logoPath)) {
-        doc.image(logoPath, 156, 150, { width: 300 });
-        doc.y = 380;
+        doc.image(logoPath, 106, 120, { width: 400 });
       } else {
-        doc.y = 250;
-        // Fallback: company name as text
+        // Fallback: company name as text if no logo
         doc
           .fillColor(COLORS.primary)
-          .fontSize(36)
+          .fontSize(28)
           .font('Helvetica-Bold')
-          .text('B', { align: 'center' });
-        doc.y = 320;
+          .text('Bautista Planning and Analytics, LLC', 50, 200, { align: 'center', width: 512 });
       }
       
-      // Company name
+      // Report title - positioned below logo
+      doc
+        .fillColor(COLORS.primary)
+        .fontSize(38)
+        .font('Helvetica-Bold')
+        .text('Progress Report', 50, 420, { align: 'center', width: 512 });
+      
       doc
         .fillColor('#2c3e50')
         .fontSize(24)
-        .font('Helvetica-Bold')
-        .text('Bautista Planning and Analytics, LLC', { align: 'center' });
-      
-      doc.moveDown(3);
-      
-      // Report title
-      doc
-        .fillColor(COLORS.primary)
-        .fontSize(36)
-        .font('Helvetica-Bold')
-        .text('Progress Report', { align: 'center' });
-      
-      doc.moveDown(0.5);
-      
-      doc
-        .fillColor('#2c3e50')
-        .fontSize(22)
         .font('Helvetica')
-        .text(reportMonth, { align: 'center' });
-      
-      doc.moveDown(3);
+        .text(reportMonth, 50, 470, { align: 'center', width: 512 });
       
       // Client name
       doc
-        .fontSize(16)
+        .fontSize(18)
         .fillColor('#555')
-        .text(`Prepared for: ${client.name}`, { align: 'center' });
+        .text(`Prepared for: ${client.name}`, 50, 530, { align: 'center', width: 512 });
       
-      // Disclaimer at bottom (fixed position)
+      // Disclaimer at bottom of title page
       doc
         .fontSize(9)
         .fillColor('#999')
         .font('Helvetica-Oblique')
         .text(
           'These graphics are projections and can change.',
-          0,
-          730,
-          { align: 'center', width: 612 }
+          50,
+          720,
+          { align: 'center', width: 512 }
         );
       
       // ==========================================
@@ -565,23 +549,21 @@ async function generateClientPDF(client, summaries, outputPath) {
         }
       });
       
-      // Add page numbers (skip title page)
-      const pages = doc.bufferedPageRange();
-      for (let i = 0; i < pages.count; i++) {
-        doc.switchToPage(i);
-        if (i === 0) continue; // Skip title page
-        
-        doc
-          .fontSize(8)
-          .fillColor('#888')
-          .font('Helvetica')
-          .text(
-            `Bautista Planning and Analytics, LLC | Page ${i} of ${pages.count - 1}`,
-            0,
-            750,
-            { align: 'center', width: 612 }
-          );
-      }
+      // Add footer to page 2 (Financial Summary)
+      doc.switchToPage(1);
+      doc
+        .fontSize(8)
+        .fillColor('#888')
+        .font('Helvetica')
+        .text('Bautista Planning and Analytics, LLC | Page 1 of 2', 0, 750, { align: 'center', width: 612 });
+      
+      // Add footer to page 3 (Expense Breakdown)
+      doc.switchToPage(2);
+      doc
+        .fontSize(8)
+        .fillColor('#888')
+        .font('Helvetica')
+        .text('Bautista Planning and Analytics, LLC | Page 2 of 2', 0, 750, { align: 'center', width: 612 });
       
       doc.end();
       

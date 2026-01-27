@@ -210,16 +210,20 @@ function App() {
   useEffect(() => {
     let dataLoaded = false; // Prevent duplicate data loading
     
-    const loadUserData = async (userId) => {
+    const loadUserData = (userId) => {
       if (dataLoaded) return; // Skip if already loaded
       dataLoaded = true;
-      console.log('Loading user data...');
-      // Run all data fetching in parallel for faster loading
-      await Promise.all([
+      console.log('Loading user data in background...');
+      // Run all data fetching in parallel - don't await, let it load in background
+      Promise.all([
         loadMonthlySummary(userId, selectedMonth),
         checkUnreviewedTransactions(userId),
         loadCurrentNetWorth(userId)
-      ]).catch(err => console.error('Error loading user data:', err));
+      ]).then(() => {
+        console.log('User data loaded successfully');
+      }).catch(err => {
+        console.error('Error loading user data:', err);
+      });
     };
 
     const initAuth = async () => {
@@ -249,12 +253,14 @@ function App() {
           };
           setClient(clientData);
           setStep('dashboard');
-          // Load dashboard data
-          await loadUserData(session.user.id);
+          setAuthLoading(false); // Show dashboard immediately
+          // Load data in background (don't await)
+          loadUserData(session.user.id);
+        } else {
+          setAuthLoading(false);
         }
       } catch (error) {
         console.error('Session check error:', error);
-      } finally {
         setAuthLoading(false);
       }
     };
@@ -262,7 +268,7 @@ function App() {
     initAuth();
 
     // Listen for auth changes (handles fresh sign-ins and sign-outs)
-    const { data: authListener } = onAuthStateChange(async (event, session) => {
+    const { data: authListener } = onAuthStateChange((event, session) => {
       console.log('Auth state changed:', event);
       if (event === 'SIGNED_IN' && session) {
         setSession(session);
@@ -274,9 +280,10 @@ function App() {
         };
         setClient(clientData);
         setStep('dashboard');
+        setAuthLoading(false); // Show dashboard immediately
 
-        // Only load data if not already loaded by initAuth
-        await loadUserData(session.user.id);
+        // Load data in background (don't await)
+        loadUserData(session.user.id);
       } else if (event === 'SIGNED_OUT') {
         dataLoaded = false; // Reset flag on sign out
         setSession(null);

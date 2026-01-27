@@ -256,6 +256,17 @@ function App() {
 
   // Check session on mount
   useEffect(() => {
+    let dataLoaded = false; // Prevent duplicate data loading
+    
+    const loadUserData = async (userId) => {
+      if (dataLoaded) return; // Skip if already loaded
+      dataLoaded = true;
+      console.log('Loading user data...');
+      await loadMonthlySummary(userId, selectedMonth);
+      await checkUnreviewedTransactions(userId);
+      await loadCurrentNetWorth(userId);
+    };
+
     const initAuth = async () => {
       try {
         // Check if this is a password reset flow
@@ -283,11 +294,8 @@ function App() {
           };
           setClient(clientData);
           setStep('dashboard');
-          // Load dashboard data (disabled temporarily for debugging)
-          console.log('Session restored - fetching user data...');
-          await loadMonthlySummary(session.user.id, selectedMonth);
-          await checkUnreviewedTransactions(session.user.id);
-          await loadCurrentNetWorth(session.user.id);
+          // Load dashboard data
+          await loadUserData(session.user.id);
         }
       } catch (error) {
         console.error('Session check error:', error);
@@ -298,7 +306,7 @@ function App() {
 
     initAuth();
 
-    // Listen for auth changes
+    // Listen for auth changes (handles fresh sign-ins and sign-outs)
     const { data: authListener } = onAuthStateChange(async (event, session) => {
       console.log('Auth state changed:', event);
       if (event === 'SIGNED_IN' && session) {
@@ -310,14 +318,12 @@ function App() {
           email: session.user.email
         };
         setClient(clientData);
-        setStep('dashboard'); // Ensure user is on the dashboard
+        setStep('dashboard');
 
-        // Trigger a full data re-fetch for the new user
-        console.log('SIGNED_IN event detected, fetching user data...');
-        await loadMonthlySummary(session.user.id, selectedMonth);
-        await checkUnreviewedTransactions(session.user.id);
-        await loadCurrentNetWorth(session.user.id);
+        // Only load data if not already loaded by initAuth
+        await loadUserData(session.user.id);
       } else if (event === 'SIGNED_OUT') {
+        dataLoaded = false; // Reset flag on sign out
         setSession(null);
         setUser(null);
         setClient(null);
@@ -329,7 +335,7 @@ function App() {
     return () => {
       authListener?.subscription?.unsubscribe();
     };
-  }, [loadMonthlySummary, checkUnreviewedTransactions, loadCurrentNetWorth, selectedMonth, setAuthLoading, setIsPasswordReset, setStep, setSession, setUser, setClient, setMonthlySummary, validateEmail, getSession, onAuthStateChange, signOut]); // Cleaned up dependencies
+  }, [loadMonthlySummary, checkUnreviewedTransactions, loadCurrentNetWorth, selectedMonth, setAuthLoading, setIsPasswordReset, setStep, setSession, setUser, setClient, setMonthlySummary, getSession, onAuthStateChange]); // Cleaned up dependencies
 
   // Watch password for strength validation
   useEffect(() => {

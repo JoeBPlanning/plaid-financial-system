@@ -319,118 +319,25 @@ async function renderExpensePieChart(summaries, dateRange) {
 async function generateClientPDF(client, summaries, outputPath) {
   return new Promise(async (resolve, reject) => {
     try {
-      const doc = new PDFDocument({
-        size: 'LETTER',
-        margins: { top: 50, bottom: 70, left: 50, right: 50 },
-        bufferPages: true
-      });
+      // Pre-generate charts before creating PDF
+      console.log(`  📊 Generating charts...`);
+      const barChart = summaries.length > 0 ? await renderStackedExpenseChart(summaries) : null;
       
-      const writeStream = fs.createWriteStream(outputPath);
-      doc.pipe(writeStream);
-      
-      // Categories to EXCLUDE from expense totals (transfers, not real expenses)
-      const EXCLUDED_CATEGORIES = ['transfers', 'loanPayment'];
-      
-      // Determine report period for title
-      const reportMonth = summaries.length > 0 
-        ? moment(summaries[0].monthYear, 'YYYY-MM').format('MMMM YYYY')
-        : moment().format('MMMM YYYY');
-      
-      // Date range for charts
       const dateRange = summaries.length > 0 
         ? `${moment(summaries[summaries.length - 1].monthYear, 'YYYY-MM').format('MMM YYYY')} - ${moment(summaries[0].monthYear, 'YYYY-MM').format('MMM YYYY')}`
         : 'No data available';
       
-      // ==========================================
-      // PAGE 1: TITLE PAGE
-      // ==========================================
+      const pieChart = summaries.length > 0 ? await renderExpensePieChart(summaries, dateRange) : null;
       
-      // Light gray background
-      doc.rect(0, 0, 612, 792).fill('#f5f7fa');
+      // Categories to EXCLUDE from expense totals
+      const EXCLUDED_CATEGORIES = ['transfers', 'loanPayment'];
       
-      // Try to load logo
-      const logoPath = path.join(__dirname, '..', 'assets', 'logo.png');
-      if (fs.existsSync(logoPath)) {
-        doc.image(logoPath, 106, 120, { width: 400 });
-      } else {
-        // Fallback: company name as text if no logo
-        doc
-          .fillColor(COLORS.primary)
-          .fontSize(28)
-          .font('Helvetica-Bold')
-          .text('Bautista Planning and Analytics, LLC', 50, 200, { align: 'center', width: 512 });
-      }
-      
-      // Report title - positioned below logo
-      doc
-        .fillColor(COLORS.primary)
-        .fontSize(38)
-        .font('Helvetica-Bold')
-        .text('Progress Report', 50, 420, { align: 'center', width: 512 });
-      
-      doc
-        .fillColor('#2c3e50')
-        .fontSize(24)
-        .font('Helvetica')
-        .text(reportMonth, 50, 470, { align: 'center', width: 512 });
-      
-      // Client name
-      doc
-        .fontSize(18)
-        .fillColor('#555')
-        .text(`Prepared for: ${client.name}`, 50, 530, { align: 'center', width: 512 });
-      
-      // Disclaimer at bottom of title page
-      doc
-        .fontSize(9)
-        .fillColor('#999')
-        .font('Helvetica-Oblique')
-        .text(
-          'These graphics are projections and can change.',
-          50,
-          720,
-          { align: 'center', width: 512 }
-        );
-      
-      // ==========================================
-      // PAGE 2: Summary & Bar Chart
-      // ==========================================
-      doc.addPage();
-      
-      // Header bar
-      doc.rect(0, 0, 612, 70).fill(COLORS.primary);
-      
-      doc
-        .fillColor('white')
-        .fontSize(22)
-        .font('Helvetica-Bold')
-        .text('Financial Summary', 50, 22, { align: 'center', width: 512 });
-      
-      doc
-        .fontSize(12)
-        .font('Helvetica')
-        .text(`${client.name} | ${dateRange}`, 50, 47, { align: 'center', width: 512 });
-      
-      doc.fillColor('#333');
-      doc.y = 90;
-      
-      if (summaries.length === 0) {
-        doc
-          .fontSize(14)
-          .text('No financial data available for this client.', { align: 'center' });
-        doc.end();
-        writeStream.on('finish', () => resolve(outputPath));
-        return;
-      }
-      
-      // Calculate totals (excluding transfers)
+      // Calculate totals
       let totalIncome = 0;
       let totalExpenses = 0;
-      
       summaries.forEach(s => {
         if (s.cashFlow) {
           totalIncome += s.cashFlow.income || 0;
-          // Calculate expenses excluding transfers
           Object.keys(CATEGORY_LABELS).forEach(cat => {
             if (!EXCLUDED_CATEGORIES.includes(cat)) {
               totalExpenses += s.cashFlow[cat] || 0;
@@ -439,72 +346,7 @@ async function generateClientPDF(client, summaries, outputPath) {
         }
       });
       
-      // Summary stats in a box
-      doc
-        .rect(50, doc.y, 512, 80)
-        .fillAndStroke('#f8f9fa', '#e1e5e9');
-      
-      const statsY = doc.y + 15;
-      doc.fillColor('#333').fontSize(11).font('Helvetica');
-      
-      doc.text(`Total Income: $${totalIncome.toLocaleString()}`, 70, statsY);
-      doc.text(`Total Expenses: $${totalExpenses.toLocaleString()}`, 70, statsY + 20);
-      
-      const netSavings = totalIncome - totalExpenses;
-      doc.fillColor(netSavings >= 0 ? '#28a745' : '#dc3545');
-      doc.text(`Net Savings: $${netSavings.toLocaleString()}`, 70, statsY + 40);
-      
-      doc.fillColor('#666').text(`Months Analyzed: ${summaries.length}`, 350, statsY + 20);
-      doc.text(`Generated: ${moment().format('MMM D, YYYY')}`, 350, statsY + 40);
-      
-      doc.y = statsY + 80;
-      doc.fillColor('#333');
-      
-      // Stacked bar chart
-      console.log(`  📊 Generating expense bar chart...`);
-      const barChart = await renderStackedExpenseChart(summaries);
-      
-      doc.image(barChart, 50, doc.y, { width: 512, height: 280 });
-      
-      // ==========================================
-      // PAGE 3: Pie Chart with Category Details
-      // ==========================================
-      doc.addPage();
-      
-      // Header bar
-      doc.rect(0, 0, 612, 70).fill(COLORS.primary);
-      
-      doc
-        .fillColor('white')
-        .fontSize(22)
-        .font('Helvetica-Bold')
-        .text('Expense Breakdown', 50, 22, { align: 'center', width: 512 });
-      
-      doc
-        .fontSize(12)
-        .font('Helvetica')
-        .text(`${client.name} | ${dateRange}`, 50, 47, { align: 'center', width: 512 });
-      
-      doc.fillColor('#333');
-      doc.y = 85;
-      
-      // Pie chart
-      console.log(`  📊 Generating expense pie chart...`);
-      const pieChart = await renderExpensePieChart(summaries, dateRange);
-      
-      doc.image(pieChart, 56, doc.y, { width: 500, height: 340 });
-      doc.y += 355;
-      
-      // Category details table
-      doc
-        .fontSize(12)
-        .font('Helvetica-Bold')
-        .fillColor('#333')
-        .text('Category Details', 50, doc.y);
-      
-      doc.y += 20;
-      
-      // Aggregate category totals (excluding transfers)
+      // Aggregate category totals
       const categoryTotals = {};
       summaries.forEach(s => {
         if (!s.cashFlow) return;
@@ -521,26 +363,161 @@ async function generateClientPDF(client, summaries, outputPath) {
         .filter(([_, amount]) => amount > 0)
         .sort((a, b) => b[1] - a[1]);
       
-      // Two-column layout for category details
+      // Now create the PDF
+      const doc = new PDFDocument({
+        size: 'LETTER',
+        autoFirstPage: false
+      });
+      
+      const writeStream = fs.createWriteStream(outputPath);
+      doc.pipe(writeStream);
+      
+      const reportMonth = summaries.length > 0 
+        ? moment(summaries[0].monthYear, 'YYYY-MM').format('MMMM YYYY')
+        : moment().format('MMMM YYYY');
+      
+      // ==========================================
+      // PAGE 1: TITLE PAGE
+      // ==========================================
+      doc.addPage({ size: 'LETTER', margin: 0 });
+      
+      // Light gray background
+      doc.rect(0, 0, 612, 792).fill('#f5f7fa');
+      
+      // Logo
+      const logoPath = path.join(__dirname, '..', 'assets', 'logo.png');
+      if (fs.existsSync(logoPath)) {
+        doc.image(logoPath, 106, 100, { width: 400 });
+      } else {
+        doc
+          .fillColor(COLORS.primary)
+          .fontSize(28)
+          .font('Helvetica-Bold')
+          .text('Bautista Planning and Analytics, LLC', 50, 180, { align: 'center', width: 512 });
+      }
+      
+      // Report title
+      doc
+        .fillColor(COLORS.primary)
+        .fontSize(38)
+        .font('Helvetica-Bold')
+        .text('Progress Report', 50, 380, { align: 'center', width: 512 });
+      
+      doc
+        .fillColor('#2c3e50')
+        .fontSize(24)
+        .font('Helvetica')
+        .text(reportMonth, 50, 430, { align: 'center', width: 512 });
+      
+      doc
+        .fontSize(18)
+        .fillColor('#555')
+        .text(`Prepared for: ${client.name}`, 50, 490, { align: 'center', width: 512 });
+      
+      // Disclaimer at bottom
+      doc
+        .fontSize(9)
+        .fillColor('#999')
+        .font('Helvetica-Oblique')
+        .text('These graphics are projections and can change.', 50, 730, { align: 'center', width: 512 });
+      
+      if (summaries.length === 0) {
+        doc.addPage({ size: 'LETTER', margin: 50 });
+        doc.fontSize(14).fillColor('#333').text('No financial data available for this client.', { align: 'center' });
+        doc.end();
+        writeStream.on('finish', () => resolve(outputPath));
+        return;
+      }
+      
+      // ==========================================
+      // PAGE 2: FINANCIAL SUMMARY
+      // ==========================================
+      doc.addPage({ size: 'LETTER', margin: 0 });
+      
+      // Header bar
+      doc.rect(0, 0, 612, 70).fill(COLORS.primary);
+      doc
+        .fillColor('white')
+        .fontSize(22)
+        .font('Helvetica-Bold')
+        .text('Financial Summary', 50, 22, { align: 'center', width: 512 });
+      doc
+        .fontSize(12)
+        .font('Helvetica')
+        .text(`${client.name} | ${dateRange}`, 50, 47, { align: 'center', width: 512 });
+      
+      // Summary stats box
+      doc.rect(50, 90, 512, 80).fillAndStroke('#f8f9fa', '#e1e5e9');
+      
+      doc.fillColor('#333').fontSize(11).font('Helvetica');
+      doc.text(`Total Income: $${totalIncome.toLocaleString()}`, 70, 105);
+      doc.text(`Total Expenses: $${totalExpenses.toLocaleString()}`, 70, 125);
+      
+      const netSavings = totalIncome - totalExpenses;
+      doc.fillColor(netSavings >= 0 ? '#28a745' : '#dc3545');
+      doc.text(`Net Savings: $${netSavings.toLocaleString()}`, 70, 145);
+      
+      doc.fillColor('#666');
+      doc.text(`Months Analyzed: ${summaries.length}`, 350, 125);
+      doc.text(`Generated: ${moment().format('MMM D, YYYY')}`, 350, 145);
+      
+      // Bar chart
+      if (barChart) {
+        doc.image(barChart, 50, 190, { width: 512, height: 300 });
+      }
+      
+      // Footer
+      doc
+        .fontSize(8)
+        .fillColor('#888')
+        .font('Helvetica')
+        .text('Bautista Planning and Analytics, LLC | Page 1 of 2', 0, 750, { align: 'center', width: 612 });
+      
+      // ==========================================
+      // PAGE 3: EXPENSE BREAKDOWN
+      // ==========================================
+      doc.addPage({ size: 'LETTER', margin: 0 });
+      
+      // Header bar
+      doc.rect(0, 0, 612, 70).fill(COLORS.primary);
+      doc
+        .fillColor('white')
+        .fontSize(22)
+        .font('Helvetica-Bold')
+        .text('Expense Breakdown', 50, 22, { align: 'center', width: 512 });
+      doc
+        .fontSize(12)
+        .font('Helvetica')
+        .text(`${client.name} | ${dateRange}`, 50, 47, { align: 'center', width: 512 });
+      
+      // Pie chart
+      if (pieChart) {
+        doc.image(pieChart, 56, 85, { width: 500, height: 320 });
+      }
+      
+      // Category details
+      doc
+        .fontSize(12)
+        .font('Helvetica-Bold')
+        .fillColor('#333')
+        .text('Category Details', 50, 420);
+      
+      // Two-column layout
       doc.fontSize(9).font('Helvetica');
-      const colWidth = 250;
-      const startX = 50;
-      const startY = doc.y;
+      const startY = 440;
       let col = 0;
       let row = 0;
       
       sortedCategories.forEach(([cat, amount], idx) => {
         const pct = totalExpenses > 0 ? ((amount / totalExpenses) * 100).toFixed(1) : 0;
-        const monthlyAvg = Math.round(amount / summaries.length).toLocaleString();
-        
-        const x = startX + (col * colWidth);
+        const x = 50 + (col * 250);
         const y = startY + (row * 16);
         
         doc.fillColor(COLORS.categoryColors[idx % COLORS.categoryColors.length]);
         doc.rect(x, y + 2, 8, 8).fill();
         
         doc.fillColor('#333');
-        doc.text(`${CATEGORY_LABELS[cat]}: $${amount.toLocaleString()} (${pct}%)`, x + 12, y, { width: colWidth - 20 });
+        doc.text(`${CATEGORY_LABELS[cat]}: $${amount.toLocaleString()} (${pct}%)`, x + 12, y, { width: 230 });
         
         col++;
         if (col >= 2) {
@@ -549,16 +526,7 @@ async function generateClientPDF(client, summaries, outputPath) {
         }
       });
       
-      // Add footer to page 2 (Financial Summary)
-      doc.switchToPage(1);
-      doc
-        .fontSize(8)
-        .fillColor('#888')
-        .font('Helvetica')
-        .text('Bautista Planning and Analytics, LLC | Page 1 of 2', 0, 750, { align: 'center', width: 612 });
-      
-      // Add footer to page 3 (Expense Breakdown)
-      doc.switchToPage(2);
+      // Footer
       doc
         .fontSize(8)
         .fillColor('#888')

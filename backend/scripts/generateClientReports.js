@@ -84,8 +84,8 @@ async function getClientSummaries(clientId, months) {
   const { data, error } = await supabase
     .from('monthly_summaries')
     .select('*')
-    .eq('clientId', clientId)
-    .order('monthYear', { ascending: false })
+    .eq('client_id', clientId)
+    .order('month_year', { ascending: false })
     .limit(months);
   
   if (error) {
@@ -93,7 +93,13 @@ async function getClientSummaries(clientId, months) {
     return [];
   }
   
-  return data || [];
+  // Map snake_case to camelCase for compatibility
+  return (data || []).map(s => ({
+    ...s,
+    clientId: s.client_id,
+    monthYear: s.month_year,
+    cashFlow: s.cash_flow
+  }));
 }
 
 /**
@@ -104,14 +110,19 @@ async function getAllClients() {
   
   const { data, error } = await supabase
     .from('clients')
-    .select('clientId, name, email');
+    .select('client_id, name, email');
   
   if (error) {
     console.error('Error fetching clients:', error);
     return [];
   }
   
-  return data || [];
+  // Map snake_case to camelCase
+  return (data || []).map(c => ({
+    clientId: c.client_id,
+    name: c.name,
+    email: c.email
+  }));
 }
 
 /**
@@ -479,11 +490,15 @@ async function main() {
     const supabase = getDatabase();
     const { data } = await supabase
       .from('clients')
-      .select('clientId, name, email')
-      .eq('clientId', CONFIG.clientId)
+      .select('client_id, name, email')
+      .eq('client_id', CONFIG.clientId)
       .single();
     
-    clients = data ? [data] : [];
+    clients = data ? [{
+      clientId: data.client_id,
+      name: data.name,
+      email: data.email
+    }] : [];
     
     if (clients.length === 0) {
       console.error(`❌ Client not found: ${CONFIG.clientId}`);

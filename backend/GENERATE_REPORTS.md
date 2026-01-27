@@ -26,7 +26,7 @@ Reports will be saved to the `./reports/` directory.
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--client <clientId>` | Generate report for a specific client only | All clients |
-| `--output <dir>` | Output directory for PDF files | `./reports` |
+| `--output <dir>` | Output directory for PDF files | `~/Downloads` |
 | `--months <n>` | Number of months to include (max 12) | `12` |
 
 ## Examples
@@ -80,7 +80,7 @@ Each PDF report contains:
 ## Output
 
 ### File Location
-Reports are saved to the output directory (default: `./reports/`)
+Reports are saved to your Downloads folder by default (`~/Downloads`)
 
 ### Filename Format
 ```

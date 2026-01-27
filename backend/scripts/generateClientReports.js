@@ -32,9 +32,13 @@ const getArg = (name) => {
   return idx !== -1 && args[idx + 1] ? args[idx + 1] : null;
 };
 
+// Default to user's Downloads folder
+const homeDir = require('os').homedir();
+const defaultOutput = require('path').join(homeDir, 'Downloads');
+
 const CONFIG = {
   clientId: getArg('client'),
-  outputDir: getArg('output') || './reports',
+  outputDir: getArg('output') || defaultOutput,
   months: Math.min(parseInt(getArg('months')) || 12, 12)
 };
 

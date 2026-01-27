@@ -331,18 +331,17 @@ class TransactionProcessor {
       monthlyData.netWorth.liabilities = monthlyData.netWorth.liabilityBreakdown.total;
       monthlyData.netWorth.netWorth = monthlyData.netWorth.assets - monthlyData.netWorth.liabilities;
 
-      // Calculate cash flow totals
+      // Calculate cash flow totals (excluding transfers, loanPayment, uncategorized)
       monthlyData.cashFlow.totalExpenses = 
         monthlyData.cashFlow.housing + monthlyData.cashFlow.billAndUtilities + 
         monthlyData.cashFlow.autoAndTransport + monthlyData.cashFlow.insurance +
-        monthlyData.cashFlow.loanPayment + monthlyData.cashFlow.groceries +
+        monthlyData.cashFlow.groceries +
         monthlyData.cashFlow.healthAndFitness + monthlyData.cashFlow.shopping +
         monthlyData.cashFlow.diningOut + monthlyData.cashFlow.entertainment +
         monthlyData.cashFlow.travel + monthlyData.cashFlow.misc + 
         monthlyData.cashFlow.charitableGiving + monthlyData.cashFlow.business +
         monthlyData.cashFlow.kids + monthlyData.cashFlow.education + 
-        monthlyData.cashFlow.gift + monthlyData.cashFlow.uncategorized + 
-        monthlyData.cashFlow.feeAndCharges;
+        monthlyData.cashFlow.gift + monthlyData.cashFlow.feeAndCharges;
 
       monthlyData.cashFlow.difference = monthlyData.cashFlow.income - monthlyData.cashFlow.totalExpenses;
       monthlyData.transactionsProcessed = transactions.length;

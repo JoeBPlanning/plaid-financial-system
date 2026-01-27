@@ -1054,48 +1054,52 @@ function App() {
           </div>
         </div>
       )}
-      <header className="header">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1200px', margin: '0 auto' }}>
-          <div>
-            <h1 style={{ margin: '0 0 10px 0' }}>Financial Progress Dashboard</h1>
-            <p style={{ margin: '0' }}>Welcome, {client?.name}</p>
-            {unreviewedCount > 0 && (
-              <div style={{
-                background: 'rgba(255, 107, 53, 0.9)',
-                padding: '8px 16px',
-                borderRadius: '20px',
-                fontSize: '14px',
-                marginTop: '10px',
-                display: 'inline-block'
-              }}>
-                {unreviewedCount} transactions need review
-              </div>
-            )}
-          </div>
-          <button
-            onClick={handleLogout}
-            style={{
-              padding: '10px 20px',
-              background: 'rgba(255, 255, 255, 0.2)',
-              color: 'white',
-              border: '2px solid white',
-              borderRadius: '8px',
-              fontSize: '16px',
-              fontWeight: '600',
-              cursor: 'pointer',
-              transition: 'all 0.3s'
-            }}
-            onMouseEnter={(e) => {
-              e.target.style.background = 'white';
-              e.target.style.color = '#667eea';
-            }}
-            onMouseLeave={(e) => {
-              e.target.style.background = 'rgba(255, 255, 255, 0.2)';
-              e.target.style.color = 'white';
-            }}
-          >
-            Logout
-          </button>
+      <header className="header" style={{ position: 'relative' }}>
+        {/* Logout button in top-right corner */}
+        <button
+          onClick={handleLogout}
+          style={{
+            position: 'absolute',
+            top: '20px',
+            right: '20px',
+            padding: '10px 20px',
+            background: 'rgba(255, 255, 255, 0.2)',
+            color: 'white',
+            border: '2px solid white',
+            borderRadius: '8px',
+            fontSize: 'clamp(14px, 2vw, 16px)',
+            fontWeight: '600',
+            cursor: 'pointer',
+            transition: 'all 0.3s'
+          }}
+          onMouseEnter={(e) => {
+            e.target.style.background = 'white';
+            e.target.style.color = '#667eea';
+          }}
+          onMouseLeave={(e) => {
+            e.target.style.background = 'rgba(255, 255, 255, 0.2)';
+            e.target.style.color = 'white';
+          }}
+        >
+          Logout
+        </button>
+        
+        {/* Centered title and welcome message */}
+        <div style={{ textAlign: 'center', maxWidth: '800px', margin: '0 auto', padding: '0 80px' }}>
+          <h1 style={{ margin: '0 0 10px 0', fontSize: 'clamp(1.5rem, 4vw, 2rem)' }}>Financial Progress Dashboard</h1>
+          <p style={{ margin: '0', fontSize: 'clamp(0.9rem, 2vw, 1rem)' }}>Welcome, {client?.name}</p>
+          {unreviewedCount > 0 && (
+            <div style={{
+              background: 'rgba(255, 107, 53, 0.9)',
+              padding: '8px 16px',
+              borderRadius: '20px',
+              fontSize: 'clamp(12px, 2vw, 14px)',
+              marginTop: '10px',
+              display: 'inline-block'
+            }}>
+              {unreviewedCount} transactions need review
+            </div>
+          )}
         </div>
       </header>
 

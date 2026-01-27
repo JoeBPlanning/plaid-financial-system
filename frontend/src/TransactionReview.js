@@ -144,7 +144,7 @@ function TransactionReview({ client, onComplete }) {
     }));
   };
 
-  const saveAndReviewAll = async () => {
+  const saveCategories = async () => {
     setSaving(true);
     try {
       // Silently create/update rules for manually changed transactions
@@ -609,7 +609,7 @@ function TransactionReview({ client, onComplete }) {
         {/* Save Button */}
         <div style={{ marginTop: '20px', textAlign: 'center' }}>
           <button 
-            onClick={saveAndReviewAll} 
+            onClick={saveCategories} 
             disabled={saving}
             style={{ 
               padding: '15px 30px', 
@@ -623,7 +623,7 @@ function TransactionReview({ client, onComplete }) {
               boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
             }}
           >
-            {saving ? 'Saving...' : 'Save & Apply to All'}
+            {saving ? 'Saving...' : 'Save Categories'}
           </button>
         </div>
       </div>

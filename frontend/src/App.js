@@ -143,91 +143,43 @@ function App() {
     };
   }, [user, session]);
 
-  // Load monthly summary for client
-  // Load monthly summary for client
-  const loadMonthlySummary = useCallback(async (clientId, month = null) => { // Wrapped in useCallback
+  // Load monthly summary for client (simplified for faster loading)
+  const loadMonthlySummary = useCallback(async (clientId, month = null) => {
     const targetMonth = month || selectedMonth;
     try {
-      // Try to get summary for specific month
-      const response = await api.get(`/api/clients/${clientId}/summaries?limit=12`); // cite: 1
-      // ... (rest of loadMonthlySummary logic) ...
+      // Just fetch existing summaries - don't try to generate on initial load
+      const response = await api.get(`/api/clients/${clientId}/summaries?limit=12`);
       if (response.data.summaries && response.data.summaries.length > 0) {
         // Find summary for the target month
         const monthSummary = response.data.summaries.find(s => s.monthYear === targetMonth);
         if (monthSummary) {
           setMonthlySummary(monthSummary);
-          return;
-        }
-        // If not found, use the most recent one as a fallback
-        setMonthlySummary(response.data.summaries[0]);
-        return;
-      }
-      
-      // If no summary exists, generate one using process-transactions
-      try {
-        const processResponse = await api.post(`/api/process-transactions/${clientId}`, {
-          targetMonth: targetMonth,
-          useUserCategories: true
-        });
-        if (processResponse.data.summary) {
-          setMonthlySummary(processResponse.data.summary);
         } else {
-          // Fallback: try regenerate-summary endpoint
-          const genResponse = await api.post(`/api/admin/regenerate-summary/${clientId}`, {
-            month: targetMonth
-          });
-          if (genResponse.data.success && genResponse.data.summary) {
-            setMonthlySummary(genResponse.data.summary);
-          } else {
-            // Last resort: reload summaries
-            const reloadResponse = await api.get(`/api/clients/${clientId}/summaries?limit=1`);
-            if (reloadResponse.data.summaries && reloadResponse.data.summaries.length > 0) {
-              setMonthlySummary(reloadResponse.data.summaries[0]);
-            }
-          }
+          // If not found, use the most recent one as a fallback
+          setMonthlySummary(response.data.summaries[0]);
         }
-      } catch (genError) {
-        console.error('Could not generate summary:', genError);
-        // Try to load any existing summary as last resort
-        const fallbackResponse = await api.get(`/api/clients/${clientId}/summaries?limit=1`);
-        if (fallbackResponse.data.summaries && fallbackResponse.data.summaries.length > 0) {
-          setMonthlySummary(fallbackResponse.data.summaries[0]);
+      }
+      // If no summaries exist, user can click "Refresh Financial Data" to generate
+    } catch (error) {
+      console.error('Error loading monthly summary:', error);
+    }
+  }, [selectedMonth]);
+
+  // Load current net worth from existing summary (don't process on load)
+  const loadCurrentNetWorth = useCallback(async (clientId) => {
+    try {
+      // Just get the most recent summary's net worth - don't reprocess
+      const response = await api.get(`/api/clients/${clientId}/summaries?limit=1`);
+      if (response.data.summaries && response.data.summaries.length > 0) {
+        const summary = response.data.summaries[0];
+        if (summary.netWorth) {
+          setCurrentNetWorth(summary.netWorth);
         }
       }
     } catch (error) {
-      console.error('Error loading monthly summary:', error);
-      // Try to process transactions as a last resort
-      try {
-        const processResponse = await api.post(`/api/process-transactions/${clientId}`, { // cite: 1
-          targetMonth: targetMonth, // cite: 1
-          useUserCategories: true // cite: 1
-        }); // cite: 1
-        if (processResponse.data.summary) { // cite: 1
-          setMonthlySummary(processResponse.data.summary);
-        }
-      } catch (processError) {
-        console.error('Could not process transactions:', processError);
-      }
-    }
-  }, [api, setMonthlySummary, selectedMonth]); // Dependencies for useCallback
-
-  // Load current net worth (always up-to-date)
-  const loadCurrentNetWorth = useCallback(async (clientId) => { // Wrapped in useCallback
-    try {
-      // ... (rest of loadCurrentNetWorth logic) ...
-      // Process transactions for current month to get latest net worth (full logic)
-      const currentMonth = new Date().toISOString().slice(0, 7);
-      const processResponse = await api.post(`/api/process-transactions/${clientId}`, { // cite: 1
-        targetMonth: currentMonth, // cite: 1
-        useUserCategories: true // cite: 1
-      }); // cite: 1
-      if (processResponse.data.summary && processResponse.data.summary.netWorth) { // cite: 1
-        setCurrentNetWorth(processResponse.data.summary.netWorth); // cite: 1
-      }
-    } catch (error) { // cite: 1
       console.error('Error loading current net worth:', error);
-    } // cite: 1
-  }, [setCurrentNetWorth]); // Removed 'api'
+    }
+  }, []);
 
   // Check for unreviewed transactions
   const checkUnreviewedTransactions = useCallback(async (clientId) => { // Wrapped in useCallback
@@ -262,9 +214,12 @@ function App() {
       if (dataLoaded) return; // Skip if already loaded
       dataLoaded = true;
       console.log('Loading user data...');
-      await loadMonthlySummary(userId, selectedMonth);
-      await checkUnreviewedTransactions(userId);
-      await loadCurrentNetWorth(userId);
+      // Run all data fetching in parallel for faster loading
+      await Promise.all([
+        loadMonthlySummary(userId, selectedMonth),
+        checkUnreviewedTransactions(userId),
+        loadCurrentNetWorth(userId)
+      ]).catch(err => console.error('Error loading user data:', err));
     };
 
     const initAuth = async () => {

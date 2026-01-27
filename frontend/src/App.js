@@ -67,6 +67,8 @@ function App() {
         return `Q${lastQ} ${lastQYear}`;
       case 'ytd':
         return `Year to Date ${currentYear}`;
+      case 'last-year':
+        return `${currentYear - 1}`;
       default:
         return selectedMonth || 'Current Period';
     }
@@ -83,6 +85,8 @@ function App() {
         return 'Quarterly Financial Summary';
       case 'ytd':
         return 'Year-to-Date Financial Summary';
+      case 'last-year':
+        return 'Annual Financial Summary';
       default:
         return 'Financial Summary';
     }
@@ -1187,7 +1191,8 @@ function App() {
                     { value: 'month', label: 'Month' },
                     { value: 'this-quarter', label: 'This Quarter' },
                     { value: 'last-quarter', label: 'Last Quarter' },
-                    { value: 'ytd', label: 'Year to Date' }
+                    { value: 'ytd', label: 'Year to Date' },
+                    { value: 'last-year', label: 'Last Year' }
                   ].map(option => (
                     <button
                       key={option.value}

@@ -39,7 +39,54 @@ function App() {
   const [showReview, setShowReview] = useState(false);
   const [unreviewedCount, setUnreviewedCount] = useState(0);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [timePeriod, setTimePeriod] = useState('month'); // 'month', 'this-quarter', 'last-quarter', 'ytd'
   const [currentNetWorth, setCurrentNetWorth] = useState(null);
+
+  // Helper function to get period label for headline
+  const getPeriodLabel = () => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth(); // 0-indexed
+    const currentQuarter = Math.floor(currentMonth / 3) + 1;
+    
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                        'July', 'August', 'September', 'October', 'November', 'December'];
+    
+    switch (timePeriod) {
+      case 'month':
+        if (selectedMonth) {
+          const [year, month] = selectedMonth.split('-');
+          return `${monthNames[parseInt(month) - 1]} ${year}`;
+        }
+        return `${monthNames[currentMonth]} ${currentYear}`;
+      case 'this-quarter':
+        return `Q${currentQuarter} ${currentYear}`;
+      case 'last-quarter':
+        const lastQ = currentQuarter === 1 ? 4 : currentQuarter - 1;
+        const lastQYear = currentQuarter === 1 ? currentYear - 1 : currentYear;
+        return `Q${lastQ} ${lastQYear}`;
+      case 'ytd':
+        return `Year to Date ${currentYear}`;
+      default:
+        return selectedMonth || 'Current Period';
+    }
+  };
+
+  // Helper function to get title based on period
+  const getPeriodTitle = () => {
+    switch (timePeriod) {
+      case 'month':
+        return 'Monthly Financial Summary';
+      case 'this-quarter':
+        return 'Quarterly Financial Summary';
+      case 'last-quarter':
+        return 'Quarterly Financial Summary';
+      case 'ytd':
+        return 'Year-to-Date Financial Summary';
+      default:
+        return 'Financial Summary';
+    }
+  };
   // Investments functionality removed
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -1124,32 +1171,71 @@ function App() {
           <div>
             {/* Financial Summary */}
             <div className="financial-summary">
-              <h2>Monthly Financial Summary - {monthlySummary.monthYear}</h2>
+              <h2>{getPeriodTitle()} - {getPeriodLabel()}</h2>
               
-              {/* Month Selector */}
+              {/* Time Period Selector */}
               <div style={{ marginBottom: '20px', textAlign: 'center' }}>
-                <label htmlFor="month-selector" style={{ marginRight: '10px', fontWeight: '500' }}>
-                  Select Month:
-                </label>
-                <input
-                  type="month"
-                  id="month-selector"
-                  value={selectedMonth}
-                  onChange={async (e) => {
-                    const newMonth = e.target.value;
-                    setSelectedMonth(newMonth);
-                    if (client) {
-                      await loadMonthlySummary(client.clientId, newMonth);
-                    }
-                  }}
-                  style={{
-                    padding: '8px 12px',
-                    fontSize: '16px',
-                    border: '2px solid #e1e5e9',
-                    borderRadius: '8px',
-                    cursor: 'pointer'
-                  }}
-                />
+                {/* Period Type Buttons */}
+                <div style={{ 
+                  display: 'flex', 
+                  justifyContent: 'center', 
+                  gap: '10px', 
+                  marginBottom: '15px',
+                  flexWrap: 'wrap'
+                }}>
+                  {[
+                    { value: 'month', label: 'Month' },
+                    { value: 'this-quarter', label: 'This Quarter' },
+                    { value: 'last-quarter', label: 'Last Quarter' },
+                    { value: 'ytd', label: 'Year to Date' }
+                  ].map(option => (
+                    <button
+                      key={option.value}
+                      onClick={() => setTimePeriod(option.value)}
+                      style={{
+                        padding: '8px 16px',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        border: '2px solid #667eea',
+                        borderRadius: '20px',
+                        cursor: 'pointer',
+                        backgroundColor: timePeriod === option.value ? '#667eea' : 'white',
+                        color: timePeriod === option.value ? 'white' : '#667eea',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                
+                {/* Month Picker (only shown when 'month' is selected) */}
+                {timePeriod === 'month' && (
+                  <div>
+                    <label htmlFor="month-selector" style={{ marginRight: '10px', fontWeight: '500' }}>
+                      Select Month:
+                    </label>
+                    <input
+                      type="month"
+                      id="month-selector"
+                      value={selectedMonth}
+                      onChange={async (e) => {
+                        const newMonth = e.target.value;
+                        setSelectedMonth(newMonth);
+                        if (client) {
+                          await loadMonthlySummary(client.clientId, newMonth);
+                        }
+                      }}
+                      style={{
+                        padding: '8px 12px',
+                        fontSize: '16px',
+                        border: '2px solid #e1e5e9',
+                        borderRadius: '8px',
+                        cursor: 'pointer'
+                      }}
+                    />
+                  </div>
+                )}
               </div>
               
               <div className="summary-grid">

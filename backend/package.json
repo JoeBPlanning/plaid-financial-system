@@ -10,7 +10,9 @@
     "start:real-banking": "ENV_FILE=.env.production node server.js",
     "dev": "nodemon server.js",
     "generate-reports": "node scripts/generateClientReports.js",
-    "generate-report": "node scripts/generateClientReports.js"
+    "generate-report": "node scripts/generateClientReports.js",
+    "ss": "node scripts/socialSecurityManager.js",
+    "social-security": "node scripts/socialSecurityManager.js"
   },
   "keywords": [],
   "author": "",

@@ -696,7 +696,7 @@ function App() {
           {/* Password Reset Form */}
           {isPasswordReset && (
             <form onSubmit={handlePasswordReset} className="login-form">
-              <h2 style={{ marginTop: 0, marginBottom: '20px', color: '#667eea' }}>Set New Password</h2>
+              <h2 style={{ marginTop: 0, marginBottom: '20px', color: '#2D5074' }}>Set New Password</h2>
 
               {authError && (
                 <div className="auth-message error">{authError}</div>
@@ -775,7 +775,7 @@ function App() {
           {/* Registration Form */}
           {!isPasswordReset && authMode === 'register' && (
             <form onSubmit={handleRegister} className="login-form">
-              <h2 style={{ marginTop: 0, marginBottom: '20px', color: '#667eea' }}>Create Account</h2>
+              <h2 style={{ marginTop: 0, marginBottom: '20px', color: '#2D5074' }}>Create Account</h2>
 
               {authError && (
                 <div className="auth-message error">{authError}</div>
@@ -886,7 +886,7 @@ function App() {
           {/* Login Form */}
           {!isPasswordReset && authMode === 'login' && (
             <form onSubmit={handleLogin} className="login-form">
-              <h2 style={{ marginTop: 0, marginBottom: '20px', color: '#667eea' }}>Login</h2>
+              <h2 style={{ marginTop: 0, marginBottom: '20px', color: '#2D5074' }}>Login</h2>
 
               {authError && (
                 <div className="auth-message error">{authError}</div>
@@ -959,7 +959,7 @@ function App() {
           {/* Forgot Password Form */}
           {!isPasswordReset && authMode === 'forgot-password' && (
             <form onSubmit={handleForgotPassword} className="login-form">
-              <h2 style={{ marginTop: 0, marginBottom: '20px', color: '#667eea' }}>Reset Password</h2>
+              <h2 style={{ marginTop: 0, marginBottom: '20px', color: '#2D5074' }}>Reset Password</h2>
 
               {authError && (
                 <div className="auth-message error">{authError}</div>
@@ -1125,7 +1125,7 @@ function App() {
           }}
           onMouseEnter={(e) => {
             e.target.style.background = 'white';
-            e.target.style.color = '#667eea';
+            e.target.style.color = '#2D5074';
           }}
           onMouseLeave={(e) => {
             e.target.style.background = 'rgba(255, 255, 255, 0.2)';
@@ -1201,11 +1201,11 @@ function App() {
                         padding: '8px 16px',
                         fontSize: '14px',
                         fontWeight: '600',
-                        border: '2px solid #667eea',
+                        border: '2px solid #2D5074',
                         borderRadius: '20px',
                         cursor: 'pointer',
-                        backgroundColor: timePeriod === option.value ? '#667eea' : 'white',
-                        color: timePeriod === option.value ? 'white' : '#667eea',
+                        backgroundColor: timePeriod === option.value ? '#2D5074' : 'white',
+                        color: timePeriod === option.value ? 'white' : '#2D5074',
                         transition: 'all 0.2s'
                       }}
                     >

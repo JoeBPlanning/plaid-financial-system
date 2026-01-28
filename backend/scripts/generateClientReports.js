@@ -42,11 +42,15 @@ const CONFIG = {
   months: Math.min(parseInt(getArg('months')) || 12, 12)
 };
 
-// Colors
+// Colors - Brand colors
 const COLORS = {
-  primary: '#667eea',
+  primary: '#2D5074',
+  secondary: '#010101',
+  grey: '#D9D9D9',
+  frost: '#E8EEF1',
+  lightBlue: '#A5E2FF',
   categoryColors: [
-    '#667eea', '#764ba2', '#ff6b35', '#28a745', '#ffc107',
+    '#2D5074', '#010101', '#A5E2FF', '#28a745', '#ffc107',
     '#17a2b8', '#dc3545', '#6c757d', '#e83e8c', '#20c997',
     '#6610f2', '#fd7e14', '#6f42c1', '#20c997', '#343a40'
   ]

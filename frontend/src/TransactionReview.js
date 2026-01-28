@@ -386,7 +386,7 @@ function TransactionReview({ client, onComplete }) {
               onClick={() => setFilter('unreviewed')}
               style={{
                 padding: '8px 16px',
-                backgroundColor: filter === 'unreviewed' ? '#667eea' : '#f0f0f0',
+                backgroundColor: filter === 'unreviewed' ? '#2D5074' : '#f0f0f0',
                 color: filter === 'unreviewed' ? 'white' : '#333',
                 border: 'none',
                 cursor: 'pointer',
@@ -399,7 +399,7 @@ function TransactionReview({ client, onComplete }) {
               onClick={() => setFilter('reviewed')}
               style={{
                 padding: '8px 16px',
-                backgroundColor: filter === 'reviewed' ? '#667eea' : '#f0f0f0',
+                backgroundColor: filter === 'reviewed' ? '#2D5074' : '#f0f0f0',
                 color: filter === 'reviewed' ? 'white' : '#333',
                 border: 'none',
                 cursor: 'pointer',
@@ -594,7 +594,7 @@ function TransactionReview({ client, onComplete }) {
                   {transaction.appliedRule && (
                     <div style={{
                       fontSize: '10px',
-                      color: '#667eea',
+                      color: '#2D5074',
                       marginTop: '2px'
                     }}>
                       ✓ Reviewed
@@ -613,7 +613,7 @@ function TransactionReview({ client, onComplete }) {
             disabled={saving}
             style={{ 
               padding: '15px 30px', 
-              backgroundColor: saving ? '#ccc' : '#667eea', 
+              backgroundColor: saving ? '#ccc' : '#2D5074', 
               color: 'white', 
               border: 'none', 
               borderRadius: '8px',

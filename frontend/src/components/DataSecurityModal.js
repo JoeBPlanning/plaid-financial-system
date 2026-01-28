@@ -47,7 +47,7 @@ function DataSecurityModal({ isOpen, onClose }) {
 
         <p>At Bautista Planning and Analytics, we understand that the security and privacy of your financial data are paramount. This document outlines the measures we take to protect your information and our commitment to your privacy.</p>
 
-        <h2 style={{ margin: '25px 0 15px 0', color: '#667eea' }}>Our Commitment to Your Data Security</h2>
+        <h2 style={{ margin: '25px 0 15px 0', color: '#2D5074' }}>Our Commitment to Your Data Security</h2>
         <p>We employ industry-standard security practices and leverage robust third-party services to ensure your data is safe and secure.</p>
 
         <h3 style={{ margin: '20px 0 10px 0', color: '#333' }}>1. Secure Authentication (Powered by Supabase)</h3>
@@ -78,7 +78,7 @@ function DataSecurityModal({ isOpen, onClose }) {
         <h3 style={{ margin: '20px 0 10px 0', color: '#333' }}>4. Regular Security Audits and Updates</h3>
         <p>We are committed to continuously monitoring and updating our security practices to adapt to new threats and technologies. Our use of managed services like Supabase ensures that underlying infrastructure security is handled by experts.</p>
 
-        <h2 style={{ margin: '25px 0 15px 0', color: '#667eea' }}>Your Role in Security</h2>
+        <h2 style={{ margin: '25px 0 15px 0', color: '#2D5074' }}>Your Role in Security</h2>
         <p>While we take extensive measures to protect your data, your active participation is also crucial:</p>
         <ul>
           <li><strong>Strong Passwords</strong>: Always use a strong, unique password for your account.</li>
@@ -86,9 +86,9 @@ function DataSecurityModal({ isOpen, onClose }) {
           <li><strong>Monitor Your Accounts</strong>: Regularly review your financial accounts for any suspicious activity.</li>
         </ul>
 
-        <h2 style={{ margin: '25px 0 15px 0', color: '#667eea' }}>Privacy Policy</h2>
+        <h2 style={{ margin: '25px 0 15px 0', color: '#2D5074' }}>Privacy Policy</h2>
         <p>For a more detailed explanation of how we collect, use, and protect your personal information, please refer to our full Privacy Policy.</p>
-        <p><a href="https://bautistaplanningandanalytics.com/privacy-policy-financial-planning/" target="_blank" rel="noopener noreferrer" style={{ color: '#667eea', textDecoration: 'underline' }}>View our full Privacy Policy</a></p>
+        <p><a href="https://bautistaplanningandanalytics.com/privacy-policy-financial-planning/" target="_blank" rel="noopener noreferrer" style={{ color: '#2D5074', textDecoration: 'underline' }}>View our full Privacy Policy</a></p>
 
         <p style={{ fontSize: '0.8em', color: '#999', marginTop: '30px' }}>
           <strong>Disclaimer</strong>: This document provides a general overview of security and privacy measures. It is not a substitute for legal advice. You should consult with a legal professional to draft a comprehensive Privacy Policy and Terms of Service that comply with all relevant laws and regulations for your specific business and jurisdiction.

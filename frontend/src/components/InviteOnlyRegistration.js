@@ -316,7 +316,7 @@ function InviteOnlyRegistration() {
           display: flex;
           align-items: center;
           justify-content: center;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          background: linear-gradient(135deg, #2D5074 0%, #010101 100%);
           padding: 20px;
         }
 
@@ -394,7 +394,7 @@ function InviteOnlyRegistration() {
 
         .form-group input:focus {
           outline: none;
-          border-color: #667eea;
+          border-color: #2D5074;
           box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
 
@@ -417,7 +417,7 @@ function InviteOnlyRegistration() {
         }
 
         .registration-footer a {
-          color: #667eea;
+          color: #2D5074;
           text-decoration: none;
         }
 
@@ -428,7 +428,7 @@ function InviteOnlyRegistration() {
         .btn-link {
           background: none;
           border: none;
-          color: #667eea;
+          color: #2D5074;
           cursor: pointer;
           font-size: 14px;
           text-decoration: none;

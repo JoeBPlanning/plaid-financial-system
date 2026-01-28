@@ -197,7 +197,7 @@ function AdminDashboard() {
   return (
     <div style={{ 
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      background: 'linear-gradient(135deg, #2D5074 0%, #010101 100%)',
       fontFamily: 'Arial, sans-serif'
     }}>
       {/* Header */}
@@ -295,7 +295,7 @@ function AdminDashboard() {
                       style={{
                         padding: '4px 8px',
                         fontSize: '11px',
-                        background: '#667eea',
+                        background: '#2D5074',
                         color: 'white',
                         border: 'none',
                         borderRadius: '3px',
@@ -442,7 +442,7 @@ function AdminDashboard() {
                     onClick={() => setBulkUpdateMode(!bulkUpdateMode)}
                     style={{
                       padding: '6px 12px',
-                      background: bulkUpdateMode ? '#dc3545' : '#667eea',
+                      background: bulkUpdateMode ? '#dc3545' : '#2D5074',
                       color: 'white',
                       border: 'none',
                       borderRadius: '4px',
@@ -628,7 +628,7 @@ function AdminDashboard() {
                       disabled={loading}
                       style={{ 
                         padding: '12px 24px', 
-                        backgroundColor: loading ? '#ccc' : '#667eea', 
+                        backgroundColor: loading ? '#ccc' : '#2D5074', 
                         color: 'white', 
                         border: 'none', 
                         borderRadius: '8px',
@@ -774,7 +774,7 @@ function AdminDashboard() {
                           }}
                           style={{
                             padding: '6px 12px',
-                            background: '#667eea',
+                            background: '#2D5074',
                             color: 'white',
                             border: 'none',
                             borderRadius: '4px',

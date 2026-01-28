@@ -369,7 +369,7 @@ const StatementUpload = ({ client }) => {
                 <div style={{
                   width: `${uploadProgress}%`,
                   height: '100%',
-                  backgroundColor: '#667eea',
+                  backgroundColor: '#2D5074',
                   transition: 'width 0.3s ease'
                 }} />
               </div>
@@ -384,7 +384,7 @@ const StatementUpload = ({ client }) => {
             disabled={uploading || !file || !accountType || !statementDate}
             style={{
               padding: '12px 24px',
-              backgroundColor: uploading ? '#ccc' : '#667eea',
+              backgroundColor: uploading ? '#ccc' : '#2D5074',
               color: 'white',
               border: 'none',
               borderRadius: '8px',

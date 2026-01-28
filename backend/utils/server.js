@@ -2363,9 +2363,9 @@ function calculateMonthlySummary(transactions, clientId, monthYear) {
     }
   });
 
-  // Calculate total expenses (excluding transfers, loanPayment, uncategorized)
+  // Calculate total expenses (excluding transfers, uncategorized)
   summary.cashFlow.totalExpenses = Object.keys(summary.cashFlow)
-    .filter(key => !['income', 'totalExpenses', 'difference', 'averageIncome', 'averageExpense', 'transfers', 'loanPayment', 'uncategorized'].includes(key))
+    .filter(key => !['income', 'totalExpenses', 'difference', 'averageIncome', 'averageExpense', 'transfers', 'uncategorized'].includes(key))
     .reduce((total, key) => total + summary.cashFlow[key], 0);
 
   summary.cashFlow.difference = summary.cashFlow.income - summary.cashFlow.totalExpenses;
@@ -2431,9 +2431,9 @@ async function processAndSaveTransactions(clientId, transactions, month) {
     }
   });
 
-  // Calculate total expenses (excluding transfers, loanPayment, uncategorized)
+  // Calculate total expenses (excluding transfers, uncategorized)
   monthlyData.cashFlow.totalExpenses = Object.keys(monthlyData.cashFlow)
-    .filter(key => !['income', 'totalExpenses', 'averageExpense', 'averageIncome', 'difference', 'transfers', 'loanPayment', 'uncategorized'].includes(key))
+    .filter(key => !['income', 'totalExpenses', 'averageExpense', 'averageIncome', 'difference', 'transfers', 'uncategorized'].includes(key))
     .reduce((total, key) => total + (monthlyData.cashFlow[key] || 0), 0);
 
   // Calculate difference

@@ -226,7 +226,7 @@ async function renderExpensePieChart(summaries, dateRange) {
   const chartJSNodeCanvas = new ChartJSNodeCanvas({ width, height });
   
   // Categories to EXCLUDE from expense totals
-  const EXCLUDED_CATEGORIES = ['transfers', 'loanPayment', 'uncategorized'];
+  const EXCLUDED_CATEGORIES = ['transfers', 'uncategorized'];
   
   // Aggregate expenses across all months
   const categoryTotals = {};
@@ -334,7 +334,7 @@ async function generateClientPDF(client, summaries, outputPath) {
       const pieChart = summaries.length > 0 ? await renderExpensePieChart(summaries, dateRange) : null;
       
       // Categories to EXCLUDE from expense totals
-      const EXCLUDED_CATEGORIES = ['transfers', 'loanPayment', 'uncategorized'];
+      const EXCLUDED_CATEGORIES = ['transfers', 'uncategorized'];
       
       // Calculate totals
       let totalIncome = 0;

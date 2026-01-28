@@ -331,11 +331,11 @@ class TransactionProcessor {
       monthlyData.netWorth.liabilities = monthlyData.netWorth.liabilityBreakdown.total;
       monthlyData.netWorth.netWorth = monthlyData.netWorth.assets - monthlyData.netWorth.liabilities;
 
-      // Calculate cash flow totals (excluding transfers, loanPayment, uncategorized)
+      // Calculate cash flow totals (excluding transfers, uncategorized)
       monthlyData.cashFlow.totalExpenses = 
         monthlyData.cashFlow.housing + monthlyData.cashFlow.billAndUtilities + 
         monthlyData.cashFlow.autoAndTransport + monthlyData.cashFlow.insurance +
-        monthlyData.cashFlow.groceries +
+        monthlyData.cashFlow.loanPayment + monthlyData.cashFlow.groceries +
         monthlyData.cashFlow.healthAndFitness + monthlyData.cashFlow.shopping +
         monthlyData.cashFlow.diningOut + monthlyData.cashFlow.entertainment +
         monthlyData.cashFlow.travel + monthlyData.cashFlow.misc + 

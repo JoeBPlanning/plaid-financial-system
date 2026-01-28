@@ -1159,7 +1159,8 @@ function App() {
           <button 
             onClick={openTransactionReview}
             style={{
-              backgroundColor: unreviewedCount > 0 ? '#ff6b35' : '#28a745'
+              backgroundColor: unreviewedCount > 0 ? '#ff6b35' : '#A5E2FF',
+              color: unreviewedCount > 0 ? 'white' : '#010101'
             }}
           >
             Review Transactions
@@ -1257,6 +1258,7 @@ function App() {
                   <div>Health & Fitness: {formatCurrency(monthlySummary.cashFlow?.healthAndFitness || 0)}</div>
                   <div>Travel: {formatCurrency(monthlySummary.cashFlow?.travel || 0)}</div>
                   <div>Insurance: {formatCurrency(monthlySummary.cashFlow?.insurance || 0)}</div>
+                  <div>Loan Payment: {formatCurrency(monthlySummary.cashFlow?.loanPayment || 0)}</div>
                   <div>Charitable Giving: {formatCurrency(monthlySummary.cashFlow?.charitableGiving || 0)}</div>
                   <div>Fees & Charges: {formatCurrency(monthlySummary.cashFlow?.feeAndCharges || 0)}</div>
                   <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #e1e5e9', fontWeight: 'bold' }}>
@@ -1271,6 +1273,7 @@ function App() {
                       (monthlySummary.cashFlow?.healthAndFitness || 0) +
                       (monthlySummary.cashFlow?.travel || 0) +
                       (monthlySummary.cashFlow?.insurance || 0) +
+                      (monthlySummary.cashFlow?.loanPayment || 0) +
                       (monthlySummary.cashFlow?.charitableGiving || 0) +
                       (monthlySummary.cashFlow?.feeAndCharges || 0)
                     )}

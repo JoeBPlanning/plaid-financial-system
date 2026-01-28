@@ -16,7 +16,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const pdfParse = require('pdf-parse');
+const pdf = require('pdf-parse');
 
 // Command line args
 const args = process.argv.slice(2);
@@ -219,7 +219,7 @@ async function parseSSStatement(filePath) {
   
   let pdfData;
   try {
-    pdfData = await pdfParse(dataBuffer);
+    pdfData = await pdf(dataBuffer);
   } catch (error) {
     console.error('❌ Error parsing PDF:', error.message);
     console.log('\n💡 If this is a scanned document, it may need OCR processing.');

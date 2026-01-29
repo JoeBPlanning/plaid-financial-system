@@ -48,41 +48,21 @@ CREATE TABLE IF NOT EXISTS paystubs (
   state_income_tax_ytd DECIMAL(12,2) DEFAULT 0,
   local_income_tax_ytd DECIMAL(12,2) DEFAULT 0,
   
-  -- Pre-Tax Deductions - This Period
-  pretax_401k DECIMAL(10,2) DEFAULT 0,
-  pretax_403b DECIMAL(10,2) DEFAULT 0,
-  pretax_hsa DECIMAL(10,2) DEFAULT 0,
-  pretax_fsa_health DECIMAL(10,2) DEFAULT 0,
-  pretax_fsa_dependent DECIMAL(10,2) DEFAULT 0,
-  pretax_health_insurance DECIMAL(10,2) DEFAULT 0,
-  pretax_dental_insurance DECIMAL(10,2) DEFAULT 0,
-  pretax_vision_insurance DECIMAL(10,2) DEFAULT 0,
-  pretax_life_insurance DECIMAL(10,2) DEFAULT 0,
-  pretax_other DECIMAL(10,2) DEFAULT 0,
+  -- Pre-Tax Deductions (JSONB for flexibility)
+  -- Format: {"dental": {"current": 5.50, "ytd": 126.50}, "401k": {"current": 230.77, "ytd": 6203.64}, ...}
+  pretax_deductions JSONB DEFAULT '{}',
   
-  -- Pre-Tax Deductions - YTD
-  pretax_401k_ytd DECIMAL(12,2) DEFAULT 0,
-  pretax_403b_ytd DECIMAL(12,2) DEFAULT 0,
-  pretax_hsa_ytd DECIMAL(12,2) DEFAULT 0,
-  pretax_fsa_health_ytd DECIMAL(12,2) DEFAULT 0,
-  pretax_fsa_dependent_ytd DECIMAL(12,2) DEFAULT 0,
-  pretax_health_insurance_ytd DECIMAL(12,2) DEFAULT 0,
-  pretax_dental_insurance_ytd DECIMAL(12,2) DEFAULT 0,
-  pretax_vision_insurance_ytd DECIMAL(12,2) DEFAULT 0,
-  pretax_life_insurance_ytd DECIMAL(12,2) DEFAULT 0,
-  pretax_other_ytd DECIMAL(12,2) DEFAULT 0,
+  -- After-Tax Deductions (JSONB for flexibility)
+  -- Format: {"roth_401k": {"current": 461.54, "ytd": 2538.47}, "vol_life_insurance": {"current": 9, "ytd": 207}, ...}
+  aftertax_deductions JSONB DEFAULT '{}',
   
-  -- After-Tax Deductions - This Period
-  aftertax_roth_401k DECIMAL(10,2) DEFAULT 0,
-  aftertax_life_insurance DECIMAL(10,2) DEFAULT 0,
-  aftertax_disability DECIMAL(10,2) DEFAULT 0,
-  aftertax_other DECIMAL(10,2) DEFAULT 0,
+  -- Pre-Tax Totals (for easy querying)
+  pretax_total DECIMAL(10,2) DEFAULT 0,
+  pretax_total_ytd DECIMAL(12,2) DEFAULT 0,
   
-  -- After-Tax Deductions - YTD
-  aftertax_roth_401k_ytd DECIMAL(12,2) DEFAULT 0,
-  aftertax_life_insurance_ytd DECIMAL(12,2) DEFAULT 0,
-  aftertax_disability_ytd DECIMAL(12,2) DEFAULT 0,
-  aftertax_other_ytd DECIMAL(12,2) DEFAULT 0,
+  -- After-Tax Totals (for easy querying)
+  aftertax_total DECIMAL(10,2) DEFAULT 0,
+  aftertax_total_ytd DECIMAL(12,2) DEFAULT 0,
   
   -- Employer Contributions
   employer_401k_match DECIMAL(10,2) DEFAULT 0,

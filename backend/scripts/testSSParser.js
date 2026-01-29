@@ -16,7 +16,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const pdf = require('pdf-parse');
+const pdfParse = require('pdf-parse');
 
 // Command line args
 const args = process.argv.slice(2);
@@ -109,19 +109,55 @@ function extractBenefits(text) {
 function extractOtherBenefits(text) {
   const other = {};
   
-  let match = text.match(PATTERNS.disability) || text.match(PATTERNS.disabilityAlt);
+  // Disability - look for "payment would be about $X,XXX"
+  let match = text.match(/(?:payment would be about|disability benefit[:\s]+)\$?([\d,]+)/i);
   if (match) other.disability = parseCurrency(match[1]);
   
-  match = text.match(PATTERNS.survivor);
-  if (match) other.survivor = parseCurrency(match[1]);
+  // Also try standard patterns
+  if (!other.disability) {
+    match = text.match(PATTERNS.disability) || text.match(PATTERNS.disabilityAlt);
+    if (match) other.disability = parseCurrency(match[1]);
+  }
   
-  match = text.match(PATTERNS.survivorSpouse);
+  // Survivor benefits
+  match = text.match(/(?:spouse.*?full retirement age)[:\s]*\$?([\d,]+)/i);
   if (match) other.survivorSpouse = parseCurrency(match[1]);
   
-  match = text.match(PATTERNS.survivorChild);
+  match = text.match(/(?:minor child)[:\s]*\$?([\d,]+)/i);
   if (match) other.survivorChild = parseCurrency(match[1]);
   
+  // Family maximum
+  match = text.match(/(?:family benefits cannot be more than)[:\s]*\$?([\d,]+)/i);
+  if (match) other.familyMaximum = parseCurrency(match[1]);
+  
+  // Death benefit
+  match = text.match(/(?:death benefit of)\s*\$?([\d,]+)/i);
+  if (match) other.deathBenefit = parseCurrency(match[1]);
+  
   return other;
+}
+
+/**
+ * Extract personal information
+ */
+function extractPersonalInfo(text) {
+  const info = {};
+  
+  // Birth date - "date of birth: August 1, 1982"
+  let match = text.match(/(?:date of birth|born)[:\s]+([A-Za-z]+\s+\d{1,2},?\s+\d{4})/i);
+  if (match) info.birthDate = match[1];
+  
+  // Also try MM/DD/YYYY format
+  if (!info.birthDate) {
+    match = text.match(/(?:date of birth|DOB)[:\s]+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i);
+    if (match) info.birthDate = match[1];
+  }
+  
+  // Current earnings assumption
+  match = text.match(/(?:continue to earn|earning)\s*\$?([\d,]+)\s*(?:per year|annually)/i);
+  if (match) info.currentIncome = parseCurrency(match[1]);
+  
+  return info;
 }
 
 /**
@@ -130,30 +166,80 @@ function extractOtherBenefits(text) {
 function extractEarnings(text) {
   const earnings = [];
   
-  // Look for earnings table section
-  const earningsSection = text.match(/Your Taxed Social Security Earnings[\s\S]*?Your Taxed Medicare Earnings/i) ||
-                          text.match(/Earnings Record[\s\S]*?(?=Your Estimated|$)/i);
-  
-  const searchText = earningsSection ? earningsSection[0] : text;
-  
-  // Pattern: Year, SS Earnings, Medicare Earnings
-  const rowPattern = /(\d{4})\s+\$?([\d,]+)\s+\$?([\d,]+)/g;
+  // Pattern 1: Year range format (1991-2000$9,688$9,688)
+  const rangePattern = /(\d{4})-(\d{4})\$?([\d,]+)\$?([\d,]+)/g;
   let match;
   
-  while ((match = rowPattern.exec(searchText)) !== null) {
-    const year = parseInt(match[1]);
-    // Filter reasonable years (1950-2030)
-    if (year >= 1950 && year <= 2030) {
+  while ((match = rangePattern.exec(text)) !== null) {
+    const startYear = parseInt(match[1]);
+    const endYear = parseInt(match[2]);
+    const ssEarnings = parseCurrency(match[3]);
+    const medicareEarnings = parseCurrency(match[4]);
+    
+    // This is a total for a range, store as the end year with a note
+    if (startYear >= 1950 && endYear <= 2030) {
       earnings.push({
-        year,
-        ssEarnings: parseCurrency(match[2]),
-        medicareEarnings: parseCurrency(match[3])
+        year: `${startYear}-${endYear}`,
+        yearStart: startYear,
+        yearEnd: endYear,
+        ssEarnings,
+        medicareEarnings,
+        isRange: true
       });
     }
   }
   
-  // Sort by year descending
-  earnings.sort((a, b) => b.year - a.year);
+  // Pattern 2: Single year format without spaces (2006$31,433$31,433)
+  const singleNoSpacePattern = /(?<!\d)(\d{4})\$?([\d,]+)\$?([\d,]+)(?!\d)/g;
+  
+  while ((match = singleNoSpacePattern.exec(text)) !== null) {
+    const year = parseInt(match[1]);
+    const ssEarnings = parseCurrency(match[2]);
+    const medicareEarnings = parseCurrency(match[3]);
+    
+    // Filter reasonable years and amounts
+    if (year >= 1950 && year <= 2030 && ssEarnings > 100 && ssEarnings < 500000) {
+      // Check if this year is already in a range
+      const inRange = earnings.some(e => e.isRange && year >= e.yearStart && year <= e.yearEnd);
+      if (!inRange) {
+        earnings.push({
+          year,
+          ssEarnings,
+          medicareEarnings,
+          isRange: false
+        });
+      }
+    }
+  }
+  
+  // Pattern 3: Standard format with spaces (2006  $31,433  $31,433)
+  const standardPattern = /(\d{4})\s+\$?([\d,]+)\s+\$?([\d,]+)/g;
+  
+  while ((match = standardPattern.exec(text)) !== null) {
+    const year = parseInt(match[1]);
+    const ssEarnings = parseCurrency(match[2]);
+    const medicareEarnings = parseCurrency(match[3]);
+    
+    if (year >= 1950 && year <= 2030 && ssEarnings > 100) {
+      // Check if already exists
+      const exists = earnings.some(e => e.year === year || (e.isRange && year >= e.yearStart && year <= e.yearEnd));
+      if (!exists) {
+        earnings.push({
+          year,
+          ssEarnings,
+          medicareEarnings,
+          isRange: false
+        });
+      }
+    }
+  }
+  
+  // Sort by year descending (ranges sort by end year)
+  earnings.sort((a, b) => {
+    const yearA = typeof a.year === 'string' ? a.yearEnd : a.year;
+    const yearB = typeof b.year === 'string' ? b.yearEnd : b.year;
+    return yearB - yearA;
+  });
   
   return earnings;
 }
@@ -219,7 +305,7 @@ async function parseSSStatement(filePath) {
   
   let pdfData;
   try {
-    pdfData = await pdf(dataBuffer);
+    pdfData = await pdfParse(dataBuffer);
   } catch (error) {
     console.error('❌ Error parsing PDF:', error.message);
     console.log('\n💡 If this is a scanned document, it may need OCR processing.');
@@ -242,6 +328,16 @@ async function parseSSStatement(filePath) {
   console.log(`   Pages: ${pdfData.numpages}`);
   console.log(`   Characters: ${text.length.toLocaleString()}`);
   
+  // Personal Info
+  console.log('\n👤 PERSONAL INFORMATION:');
+  console.log('─'.repeat(40));
+  const personalInfo = extractPersonalInfo(text);
+  if (personalInfo.birthDate) console.log(`   Birth Date: ${personalInfo.birthDate}`);
+  if (personalInfo.currentIncome) console.log(`   Current Income: $${personalInfo.currentIncome.toLocaleString()}/year`);
+  if (!personalInfo.birthDate && !personalInfo.currentIncome) {
+    console.log('   ⚠️  No personal info found');
+  }
+  
   // Extract data
   console.log('\n💰 RETIREMENT BENEFITS:');
   console.log('─'.repeat(40));
@@ -261,9 +357,10 @@ async function parseSSStatement(filePath) {
   const otherBenefits = extractOtherBenefits(text);
   if (Object.keys(otherBenefits).length > 0) {
     if (otherBenefits.disability) console.log(`   Disability: $${otherBenefits.disability.toLocaleString()}/month`);
-    if (otherBenefits.survivor) console.log(`   Survivor: $${otherBenefits.survivor.toLocaleString()}/month`);
-    if (otherBenefits.survivorSpouse) console.log(`   Survivor (Spouse): $${otherBenefits.survivorSpouse.toLocaleString()}/month`);
+    if (otherBenefits.survivorSpouse) console.log(`   Survivor (Spouse at FRA): $${otherBenefits.survivorSpouse.toLocaleString()}/month`);
     if (otherBenefits.survivorChild) console.log(`   Survivor (Child): $${otherBenefits.survivorChild.toLocaleString()}/month`);
+    if (otherBenefits.familyMaximum) console.log(`   Family Maximum: $${otherBenefits.familyMaximum.toLocaleString()}/month`);
+    if (otherBenefits.deathBenefit) console.log(`   One-time Death Benefit: $${otherBenefits.deathBenefit.toLocaleString()}`);
   } else {
     console.log('   ⚠️  No other benefits found');
   }
@@ -278,20 +375,22 @@ async function parseSSStatement(filePath) {
   console.log('─'.repeat(40));
   const earnings = extractEarnings(text);
   if (earnings.length > 0) {
-    console.log('   Year     SS Earnings    Medicare Earnings');
-    console.log('   ' + '─'.repeat(45));
-    earnings.slice(0, 15).forEach(e => {
-      console.log(`   ${e.year}     $${e.ssEarnings.toLocaleString().padEnd(12)} $${e.medicareEarnings.toLocaleString()}`);
+    console.log('   Year        SS Earnings      Medicare Earnings');
+    console.log('   ' + '─'.repeat(50));
+    earnings.slice(0, 20).forEach(e => {
+      const yearStr = String(e.year).padEnd(12);
+      console.log(`   ${yearStr} $${e.ssEarnings.toLocaleString().padEnd(14)} $${e.medicareEarnings.toLocaleString()}`);
     });
-    if (earnings.length > 15) {
-      console.log(`   ... and ${earnings.length - 15} more years`);
+    if (earnings.length > 20) {
+      console.log(`   ... and ${earnings.length - 20} more entries`);
     }
     
     // Calculate totals
     const totalSS = earnings.reduce((sum, e) => sum + e.ssEarnings, 0);
     const totalMedicare = earnings.reduce((sum, e) => sum + e.medicareEarnings, 0);
-    console.log('   ' + '─'.repeat(45));
-    console.log(`   Total:   $${totalSS.toLocaleString().padEnd(12)} $${totalMedicare.toLocaleString()}`);
+    console.log('   ' + '─'.repeat(50));
+    console.log(`   TOTAL:      $${totalSS.toLocaleString().padEnd(14)} $${totalMedicare.toLocaleString()}`);
+    console.log(`   Years/Ranges: ${earnings.length}`);
   } else {
     console.log('   ⚠️  No earnings history found');
   }
@@ -315,12 +414,18 @@ async function parseSSStatement(filePath) {
   console.log('─'.repeat(60));
   
   const storageData = {
+    personalInfo: personalInfo,
     benefits: benefits,
-    disability: otherBenefits.disability,
-    survivor: otherBenefits.survivor || otherBenefits.survivorSpouse,
+    disability: otherBenefits.disability || null,
+    survivorSpouse: otherBenefits.survivorSpouse || null,
+    survivorChild: otherBenefits.survivorChild || null,
+    familyMaximum: otherBenefits.familyMaximum || null,
+    deathBenefit: otherBenefits.deathBenefit || null,
     medicare: medicare,
-    earningsYears: earnings.length,
+    earningsCount: earnings.length,
     totalSSEarnings: earnings.reduce((sum, e) => sum + e.ssEarnings, 0),
+    totalMedicareEarnings: earnings.reduce((sum, e) => sum + e.medicareEarnings, 0),
+    earnings: earnings,
   };
   
   console.log(JSON.stringify(storageData, null, 2));
@@ -330,7 +435,7 @@ async function parseSSStatement(filePath) {
   console.log('   - Use --debug to see all dollar amounts with context');
   console.log('   - Adjust patterns in this script based on your statement format\n');
   
-  return { benefits, otherBenefits, medicare, earnings };
+  return { personalInfo, benefits, otherBenefits, medicare, earnings };
 }
 
 // Main

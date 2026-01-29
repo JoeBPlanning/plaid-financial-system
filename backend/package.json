@@ -16,7 +16,9 @@
     "test-ss-parser": "node scripts/testSSParser.js",
     "parse-ss": "node scripts/testSSParser.js",
     "test-paystub": "node scripts/testPaystubParser.js",
-    "parse-paystub": "node scripts/testPaystubParser.js"
+    "parse-paystub": "node scripts/testPaystubParser.js",
+    "parse-investment": "node scripts/testInvestmentParser.js",
+    "parse-investments": "node scripts/testInvestmentParser.js --all"
   },
   "keywords": [],
   "author": "",

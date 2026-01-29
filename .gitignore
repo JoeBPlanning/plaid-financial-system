@@ -38,3 +38,7 @@ lerna-debug.log*
 
 # Misc
 .eslintcache
+
+# Personal financial statements (contain sensitive data)
+backend/statements/*.pdf
+!backend/statements/.gitkeep

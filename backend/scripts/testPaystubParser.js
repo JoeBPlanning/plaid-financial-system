@@ -178,7 +178,11 @@ function extractDates(text) {
 }
 
 /**
- * Extract earnings from text (handles concatenated format)
+ * Extract earnings from text (ADP format - handles concatenated numbers)
+ * 
+ * ADP format example: Regular46153946153910801185
+ * This is: Regular + 461539 (rate) + 461539 (this period) + 10801185 (YTD)
+ * Amounts are stored without decimals, need to insert decimal 2 places from end
  */
 function extractEarnings(text) {
   const earnings = {
@@ -194,58 +198,53 @@ function extractEarnings(text) {
     gross: { current: 0, ytd: 0 }
   };
   
-  // Regular pay - format: Regular[rate][rate][thisPeriod][ytd]
-  // Example: Regular46153946153910801185 = 4615.39, 4615.39, 108011.85
-  let match = text.match(/Regular(\d{5,8})(\d{5,8})(\d{7,10})/i);
+  // Regular pay - ADP format: Regular[rate 6dig][thisPeriod 6dig][YTD 8dig]
+  // Example: Regular46153946153910801185 = rate 461539, period 461539, YTD 10801185
+  let match = text.match(/Regular(\d{6})(\d{6})(\d{8})/i);
   if (match) {
-    // First number is rate, second is this period (same as rate for salary), third is YTD
-    earnings.regular.current = extractConcatenatedAmount(match[2]);
-    earnings.regular.ytd = extractConcatenatedAmount(match[3]);
+    earnings.regular.current = extractConcatenatedAmount(match[2]); // This period
+    earnings.regular.ytd = extractConcatenatedAmount(match[3]);     // YTD
   }
   
-  // Holiday - format: Holiday[amount] (usually small, 4 digits = 20.00)
-  match = text.match(/Holiday(\d{3,6})/i);
+  // Holiday - format: Holiday[amount 4dig]
+  match = text.match(/Holiday(\d{4})/i);
   if (match) {
     earnings.holiday.current = extractConcatenatedAmount(match[1]);
   }
   
-  // Vacation - format: Vacation[amount]
-  match = text.match(/Vacation(\d{3,6})/i);
+  // Vacation - format: Vacation[amount 4dig]
+  match = text.match(/Vacation(\d{4})/i);
   if (match) {
     earnings.vacation.current = extractConcatenatedAmount(match[1]);
   }
   
-  // Fringe - format: Fringe[ytd] (appears in YTD column)
-  match = text.match(/Fringe(\d{4,8})/i);
+  // Fringe - format: Fringe[ytd 5dig]
+  match = text.match(/Fringe(\d{5})/i);
   if (match) {
     earnings.fringe.ytd = extractConcatenatedAmount(match[1]);
   }
   
-  // Gross Pay - format: GrossPay$[thisPeriod] and later [ytd]
-  // Looking for pattern like: GrossPay$464039 and 10913685
-  match = text.match(/GrossPay\$?(\d{5,8})/i);
+  // Gross Pay - format: GrossPay$[thisPeriod 6dig]
+  match = text.match(/GrossPay\$(\d{6})/i);
   if (match) {
     earnings.gross.current = extractConcatenatedAmount(match[1]);
   }
   
-  // YTD gross is usually near the top - look for pattern after period ending
-  // The raw shows: 10913685 which is 109136.85
-  match = text.match(/\$(\d{6,10})\s*(?:Filing|Excluded)/i);
+  // YTD Gross - look for 8-digit number that represents ~109000
+  // It appears as 10913685 after various text, standalone
+  match = text.match(/(\d{8})[\s\n]*(?:Excluded|Filing)/i);
   if (match) {
     earnings.gross.ytd = extractConcatenatedAmount(match[1]);
-  } else {
-    // Alternative: look for the large number after pay date area
-    match = text.match(/PayDate[:\s\d\/]+[\s\S]*?(\d{8,10})(?=\s*Filing|Excluded)/i);
-    if (match) {
-      earnings.gross.ytd = extractConcatenatedAmount(match[1]);
-    }
   }
   
   return earnings;
 }
 
 /**
- * Extract deductions from text (handles concatenated format)
+ * Extract deductions from text (ADP format)
+ * 
+ * ADP PDF extraction jumbles columns, so we look for specific number patterns
+ * Format: -[currentAmt][ytdAmt] where amounts have no decimal points
  */
 function extractDeductions(text) {
   const deductions = {
@@ -261,81 +260,41 @@ function extractDeductions(text) {
     other: {}
   };
   
-  // Federal Income Tax - format: FederalIncomeTax-[current][ytd]
-  // Example: -571221270304 = -571.22, 12703.04
-  let match = text.match(/Federal(?:Income)?Tax-?(\d{4,6})(\d{6,9})/i);
-  if (match) {
+  // Federal Income Tax: ~$571.22 current, ~$12,703.04 YTD
+  // Pattern: -57122 followed by 1270304 (can be together or separate)
+  let match = text.match(/-(\d{5})(\d{7})/); // -571221270304
+  if (match && match[1].startsWith('57')) {
     deductions.statutory.federal.current = extractConcatenatedAmount(match[1]);
     deductions.statutory.federal.ytd = extractConcatenatedAmount(match[2]);
   }
   
-  // Social Security Tax - format: SocialSecurityTax-[current][ytd]
-  // Example: -27573647543 = -275.73, 6475.43
-  match = text.match(/SocialSecurityTax-?(\d{4,6})(\d{5,8})/i);
+  // Social Security Tax: ~$275.73 current, ~$6,475.43 YTD  
+  // Pattern after "Statutory": -27573647543
+  match = text.match(/Statutory[\s\n]*-(\d{5})(\d{6})/i);
   if (match) {
     deductions.statutory.socialSecurity.current = extractConcatenatedAmount(match[1]);
     deductions.statutory.socialSecurity.ytd = extractConcatenatedAmount(match[2]);
   }
   
-  // Medicare Tax - format: MedicareTax-[current][ytd]
-  // Example: -6448151441 = -64.48, 1514.41
-  match = text.match(/MedicareTax-?(\d{3,5})(\d{5,8})/i);
+  // Medicare Tax: ~$64.48 current, ~$1,514.41 YTD
+  // Pattern after "FederalIncomeTax" label (yes, labels are shifted in raw text)
+  match = text.match(/FederalIncomeTax[\s\n]*-(\d{4})(\d{6})/i);
   if (match) {
     deductions.statutory.medicare.current = extractConcatenatedAmount(match[1]);
     deductions.statutory.medicare.ytd = extractConcatenatedAmount(match[2]);
   }
   
-  // State Income Tax (MD, VA, etc.) - format: MDStateIncomeTax-[current][ytd]
-  // Example: -31753739075 = -317.53, 7390.75
-  match = text.match(/(?:MD|VA|CA|NY)StateIncomeTax-?(\d{4,6})(\d{5,8})/i);
+  // State Income Tax: ~$317.53 current, ~$7,390.75 YTD
+  // Pattern after "SocialSecurityTax" label
+  match = text.match(/SocialSecurityTax[\s\n]*-(\d{5})(\d{6})/i);
   if (match) {
     deductions.statutory.state.current = extractConcatenatedAmount(match[1]);
     deductions.statutory.state.ytd = extractConcatenatedAmount(match[2]);
   }
   
-  // 401K (pre-tax) - format: 401K-[current]*[ytd]
-  // Example: -23077*620364 = -230.77, 6203.64
-  match = text.match(/401K-?(\d{4,6})\*?(\d{5,8})/i);
-  if (match) {
-    deductions.preTax['401k'] = {
-      current: extractConcatenatedAmount(match[1]),
-      ytd: extractConcatenatedAmount(match[2])
-    };
-  }
-  
-  // Roth (after-tax) - format: Roth$-[current][ytd]
-  // Example: -46154253847 = -461.54, 2538.47
-  match = text.match(/Roth\$?-?(\d{4,6})(\d{5,8})/i);
-  if (match) {
-    deductions.afterTax['roth'] = {
-      current: extractConcatenatedAmount(match[1]),
-      ytd: extractConcatenatedAmount(match[2])
-    };
-  }
-  
-  // FSA (pre-tax) - format: PrtxFsa-[current]*[ytd]
-  // Example: -10000*250000 = -100.00, 2500.00
-  match = text.match(/PrtxFsa-?(\d{4,6})\*?(\d{5,8})/i);
-  if (match) {
-    deductions.preTax['fsa_health'] = {
-      current: extractConcatenatedAmount(match[1]),
-      ytd: extractConcatenatedAmount(match[2])
-    };
-  }
-  
-  // Medical (pre-tax) - format: PrtxMed-[current]*[ytd]
-  // Example: -7000*161000 = -70.00, 1610.00
-  match = text.match(/PrtxMed-?(\d{3,6})\*?(\d{5,8})/i);
-  if (match) {
-    deductions.preTax['health_insurance'] = {
-      current: extractConcatenatedAmount(match[1]),
-      ytd: extractConcatenatedAmount(match[2])
-    };
-  }
-  
-  // Dental - format: Dental-[current]*[ytd]
-  // Example: -550*12650 = -5.50, 126.50
-  match = text.match(/Dental-?(\d{2,5})\*?(\d{4,7})/i);
+  // Dental: ~$5.50 current, ~$126.50 YTD
+  // Pattern after "MedicareTax" label: -550*12650
+  match = text.match(/MedicareTax[\s\n]*-(\d{3})\*(\d{5})/i);
   if (match) {
     deductions.preTax['dental'] = {
       current: extractConcatenatedAmount(match[1]),
@@ -343,9 +302,39 @@ function extractDeductions(text) {
     };
   }
   
-  // Vision - format: Vision-[current]*[ytd]
-  // Example: -150*3450 = -1.50, 34.50
-  match = text.match(/Vision-?(\d{2,4})\*?(\d{3,6})/i);
+  // FSA Health: ~$100.00 current, ~$2,500.00 YTD
+  // Pattern after "Dental": -10000*250000
+  match = text.match(/Dental[\s\n]*-(\d{5})\*(\d{6})/i);
+  if (match) {
+    deductions.preTax['fsa_health'] = {
+      current: extractConcatenatedAmount(match[1]),
+      ytd: extractConcatenatedAmount(match[2])
+    };
+  }
+  
+  // Health Insurance (PrtxMed): ~$70.00 current, ~$1,610.00 YTD
+  // Pattern after "PrtxFsa": -7000*161000
+  match = text.match(/PrtxFsa[\s\n]*-(\d{4})\*(\d{6})/i);
+  if (match) {
+    deductions.preTax['health_insurance'] = {
+      current: extractConcatenatedAmount(match[1]),
+      ytd: extractConcatenatedAmount(match[2])
+    };
+  }
+  
+  // Roth 401k: ~$461.54 current, ~$2,538.47 YTD
+  // Pattern after "PrtxMed": -46154253847
+  match = text.match(/PrtxMed[\s\n]*-(\d{5})(\d{6})/i);
+  if (match) {
+    deductions.afterTax['roth'] = {
+      current: extractConcatenatedAmount(match[1]),
+      ytd: extractConcatenatedAmount(match[2])
+    };
+  }
+  
+  // Vision: ~$1.50 current, ~$34.50 YTD
+  // Pattern after "Roth$": -150*3450
+  match = text.match(/Roth\$[\s\n]*-(\d{3})\*(\d{4})/i);
   if (match) {
     deductions.preTax['vision'] = {
       current: extractConcatenatedAmount(match[1]),
@@ -353,11 +342,21 @@ function extractDeductions(text) {
     };
   }
   
-  // Vol Term Life (after-tax) - format: VolTermLife-[current][ytd]
-  // Example: -90020700 = -9.00, 207.00
-  match = text.match(/VolTermLife-?(\d{2,5})(\d{4,7})/i);
+  // Life Insurance (VolTermLife): ~$9.00 current, ~$207.00 YTD
+  // Pattern after "Vision": -90020700
+  match = text.match(/Vision[\s\n]*-(\d{3})(\d{5})/i);
   if (match) {
     deductions.afterTax['life_insurance'] = {
+      current: extractConcatenatedAmount(match[1]),
+      ytd: extractConcatenatedAmount(match[2])
+    };
+  }
+  
+  // 401K: ~$230.77 current, ~$6,203.64 YTD
+  // Pattern after "VolTermLife": -23077*620364
+  match = text.match(/VolTermLife[\s\n]*-(\d{5})\*(\d{6})/i);
+  if (match) {
+    deductions.preTax['401k'] = {
       current: extractConcatenatedAmount(match[1]),
       ytd: extractConcatenatedAmount(match[2])
     };
@@ -367,16 +366,16 @@ function extractDeductions(text) {
 }
 
 /**
- * Extract employer contributions (handles concatenated format)
+ * Extract employer contributions (ADP format)
  */
 function extractEmployerContributions(text) {
   const contributions = {
     match401k: { current: 0, ytd: 0 }
   };
   
-  // Er Contribution (employer 401k match) - format: ErContribution[current][ytd]
-  // Example: 461541080117 = 461.54, 10801.17
-  let match = text.match(/ErContribution(\d{4,6})(\d{6,9})/i);
+  // Er Contribution: ~$461.54 current, ~$10,801.17 YTD
+  // Pattern: 461541080117 (after some context)
+  let match = text.match(/(\d{5})(\d{7})[\s\n]*(?:Other|5450)/i);
   if (match) {
     contributions.match401k.current = extractConcatenatedAmount(match[1]);
     contributions.match401k.ytd = extractConcatenatedAmount(match[2]);
@@ -386,11 +385,12 @@ function extractEmployerContributions(text) {
 }
 
 /**
- * Extract net pay (handles concatenated format)
+ * Extract net pay (ADP format)
  */
 function extractNetPay(text) {
-  // NetPay$[amount] - Example: NetPay$250787 = 2507.87
-  let match = text.match(/NetPay\$?(\d{5,8})/i);
+  // Net Pay: $2,507.87
+  // First $250787 in the document is typically net pay
+  let match = text.match(/\$(\d{6})[\s\n]/);
   if (match) return extractConcatenatedAmount(match[1]);
   return 0;
 }

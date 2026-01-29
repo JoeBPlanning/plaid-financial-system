@@ -10,8 +10,8 @@
  *   view                  View SS data for a client
  *   add-manual            Add SS data manually (requires --birthdate, --income)
  *   add-earnings          Add earnings for a year (requires --year, --earnings)
- *   parse-statement       Parse SS statement PDF (requires --file)
- *   calculate             Calculate/recalculate benefits
+ *   import                Parse SS statement PDF and import to DB (requires --file)
+ *   add-benefits          Manually add benefit amounts
  *   
  * Options:
  *   --client <id>         Client ID (UUID) or email
@@ -37,6 +37,7 @@ require('dotenv').config({ path: '.env.development' });
 const fs = require('fs');
 const path = require('path');
 const moment = require('moment');
+const pdfParse = require('pdf-parse');
 const { initDatabase, getDatabase } = require('../database-supabase');
 
 // Parse command line arguments
@@ -591,6 +592,238 @@ async function addStatementBenefits(clientId, benefit62, benefit67, benefit70) {
 }
 
 /**
+ * Parse currency string to number
+ */
+function parseCurrency(str) {
+  if (!str) return null;
+  return parseFloat(str.replace(/[,$]/g, ''));
+}
+
+/**
+ * Parse SS statement PDF and import to database
+ */
+async function parseAndImportStatement(clientId, filePath) {
+  const supabase = getDatabase();
+  
+  // Check file exists
+  if (!fs.existsSync(filePath)) {
+    console.error(`❌ File not found: ${filePath}`);
+    return;
+  }
+  
+  console.log(`\n📄 Parsing: ${filePath}`);
+  
+  // Read and parse PDF
+  const dataBuffer = fs.readFileSync(filePath);
+  let pdfData;
+  try {
+    pdfData = await pdfParse(dataBuffer);
+  } catch (error) {
+    console.error('❌ Error parsing PDF:', error.message);
+    return;
+  }
+  
+  const text = pdfData.text;
+  console.log(`   Pages: ${pdfData.numpages}, Characters: ${text.length.toLocaleString()}`);
+  
+  // Extract personal info
+  let birthDate = null;
+  let birthMatch = text.match(/(?:date of birth|born)[:\s]+([A-Za-z]+\s+\d{1,2},?\s+\d{4})/i);
+  if (birthMatch) {
+    birthDate = moment(birthMatch[1], ['MMMM D, YYYY', 'MMMM D YYYY']).format('YYYY-MM-DD');
+  }
+  
+  // Extract current income assumption
+  let currentIncome = null;
+  let incomeMatch = text.match(/(?:continue to earn|earning)\s*\$?([\d,]+)\s*(?:per year|annually)/i);
+  if (incomeMatch) {
+    currentIncome = parseCurrency(incomeMatch[1]);
+  }
+  
+  // Extract benefits
+  const benefits = {};
+  const agePattern = /(?:age\s*)?(\d{2})\s*[:\s]+\$?([\d,]+)(?:\s*(?:a month|monthly|per month))?/gi;
+  let ageMatch;
+  while ((ageMatch = agePattern.exec(text)) !== null) {
+    const age = parseInt(ageMatch[1]);
+    const amount = parseCurrency(ageMatch[2]);
+    if (age >= 62 && age <= 70 && amount > 100 && amount < 10000) {
+      benefits[age] = benefits[age] || amount;
+    }
+  }
+  
+  // Extract disability benefit
+  let disability = null;
+  let disabilityMatch = text.match(/(?:payment would be about|disability benefit[:\s]+)\$?([\d,]+)/i);
+  if (disabilityMatch) {
+    disability = parseCurrency(disabilityMatch[1]);
+  }
+  
+  // Extract survivor benefits
+  let survivorSpouse = null;
+  let survivorChild = null;
+  let familyMax = null;
+  
+  let match = text.match(/(?:spouse.*?full retirement age)[:\s]*\$?([\d,]+)/i);
+  if (match) survivorSpouse = parseCurrency(match[1]);
+  
+  match = text.match(/(?:minor child)[:\s]*\$?([\d,]+)/i);
+  if (match) survivorChild = parseCurrency(match[1]);
+  
+  match = text.match(/(?:family benefits cannot be more than)[:\s]*\$?([\d,]+)/i);
+  if (match) familyMax = parseCurrency(match[1]);
+  
+  // Extract Medicare credits
+  let medicareCredits = null;
+  let creditsMatch = text.match(/(\d+)\s*(?:credits?|quarters?)/i);
+  if (creditsMatch) {
+    medicareCredits = parseInt(creditsMatch[1]);
+  }
+  
+  // Extract earnings history
+  const earnings = [];
+  
+  // Year range format (1991-2000$9,688$9,688)
+  const rangePattern = /(\d{4})-(\d{4})\$?([\d,]+)\$?([\d,]+)/g;
+  while ((match = rangePattern.exec(text)) !== null) {
+    const startYear = parseInt(match[1]);
+    const endYear = parseInt(match[2]);
+    if (startYear >= 1950 && endYear <= 2030) {
+      earnings.push({
+        yearStart: startYear,
+        yearEnd: endYear,
+        ssEarnings: parseCurrency(match[3]),
+        medicareEarnings: parseCurrency(match[4]),
+        isRange: true
+      });
+    }
+  }
+  
+  // Single year format (2006$31,433$31,433)
+  const singlePattern = /(?<!\d)(\d{4})\$?([\d,]+)\$?([\d,]+)(?!\d)/g;
+  while ((match = singlePattern.exec(text)) !== null) {
+    const year = parseInt(match[1]);
+    const ssEarnings = parseCurrency(match[2]);
+    if (year >= 1950 && year <= 2030 && ssEarnings > 100 && ssEarnings < 500000) {
+      const inRange = earnings.some(e => e.isRange && year >= e.yearStart && year <= e.yearEnd);
+      if (!inRange) {
+        earnings.push({
+          year,
+          ssEarnings,
+          medicareEarnings: parseCurrency(match[3]),
+          isRange: false
+        });
+      }
+    }
+  }
+  
+  console.log('\n📊 Extracted Data:');
+  console.log('─'.repeat(50));
+  if (birthDate) console.log(`   Birth Date: ${birthDate}`);
+  if (currentIncome) console.log(`   Current Income: $${currentIncome.toLocaleString()}`);
+  console.log(`   Benefits found: Ages ${Object.keys(benefits).join(', ')}`);
+  if (disability) console.log(`   Disability: $${disability.toLocaleString()}/month`);
+  if (survivorSpouse) console.log(`   Survivor (Spouse): $${survivorSpouse.toLocaleString()}/month`);
+  if (survivorChild) console.log(`   Survivor (Child): $${survivorChild.toLocaleString()}/month`);
+  if (medicareCredits) console.log(`   Medicare Credits: ${medicareCredits}`);
+  console.log(`   Earnings records: ${earnings.length}`);
+  
+  // Calculate FRA if we have birth date
+  let fraMonths = null;
+  if (birthDate) {
+    const birthYear = moment(birthDate).year();
+    const fra = getFullRetirementAge(birthYear);
+    fraMonths = (fra.years * 12) + fra.months;
+  }
+  
+  // Save main SS data
+  console.log('\n💾 Saving to database...');
+  
+  const ssData = {
+    client_id: clientId,
+    birth_date: birthDate || moment().subtract(40, 'years').format('YYYY-MM-DD'),
+    full_retirement_age: fraMonths,
+    benefit_age_62: benefits[62] || null,
+    benefit_age_63: benefits[63] || null,
+    benefit_age_64: benefits[64] || null,
+    benefit_age_65: benefits[65] || null,
+    benefit_age_66: benefits[66] || null,
+    benefit_age_67: benefits[67] || null,
+    benefit_age_68: benefits[68] || null,
+    benefit_age_69: benefits[69] || null,
+    benefit_age_70: benefits[70] || null,
+    primary_insurance_amount: benefits[67] || null,
+    disability_benefit: disability,
+    survivor_benefit: survivorSpouse || survivorChild,
+    medicare_credits: medicareCredits,
+    medicare_eligible: medicareCredits >= 40,
+    data_source: 'statement_parse',
+    statement_date: new Date().toISOString().split('T')[0],
+  };
+  
+  const { error: ssError } = await supabase
+    .from('social_security')
+    .upsert(ssData, { onConflict: 'client_id' });
+  
+  if (ssError) {
+    console.error('❌ Error saving SS data:', ssError);
+    return;
+  }
+  console.log('   ✅ Main SS data saved');
+  
+  // Save earnings history
+  let earningsSaved = 0;
+  for (const e of earnings) {
+    if (e.isRange) {
+      // For ranges, we'll save as the end year with the total
+      const earningsData = {
+        client_id: clientId,
+        work_year: e.yearEnd,
+        taxed_social_security_earnings: e.ssEarnings,
+        taxed_medicare_earnings: e.medicareEarnings,
+        social_security_tax_paid: e.ssEarnings * SS_CONSTANTS.SS_TAX_RATE,
+        medicare_tax_paid: e.medicareEarnings * SS_CONSTANTS.MEDICARE_TAX_RATE,
+        employer_ss_paid: e.ssEarnings * SS_CONSTANTS.SS_TAX_RATE,
+        employer_medicare_paid: e.medicareEarnings * SS_CONSTANTS.MEDICARE_TAX_RATE,
+        credits_earned: Math.min(4, Math.floor(e.ssEarnings / SS_CONSTANTS.CREDIT_AMOUNT)),
+      };
+      
+      const { error } = await supabase
+        .from('social_security_earnings')
+        .upsert(earningsData, { onConflict: 'client_id,work_year' });
+      
+      if (!error) earningsSaved++;
+    } else {
+      // Single year
+      const earningsData = {
+        client_id: clientId,
+        work_year: e.year,
+        taxed_social_security_earnings: e.ssEarnings,
+        taxed_medicare_earnings: e.medicareEarnings,
+        social_security_tax_paid: e.ssEarnings * SS_CONSTANTS.SS_TAX_RATE,
+        medicare_tax_paid: e.medicareEarnings * SS_CONSTANTS.MEDICARE_TAX_RATE,
+        employer_ss_paid: e.ssEarnings * SS_CONSTANTS.SS_TAX_RATE,
+        employer_medicare_paid: e.medicareEarnings * SS_CONSTANTS.MEDICARE_TAX_RATE,
+        credits_earned: Math.min(4, Math.floor(e.ssEarnings / SS_CONSTANTS.CREDIT_AMOUNT)),
+      };
+      
+      const { error } = await supabase
+        .from('social_security_earnings')
+        .upsert(earningsData, { onConflict: 'client_id,work_year' });
+      
+      if (!error) earningsSaved++;
+    }
+  }
+  console.log(`   ✅ ${earningsSaved} earnings records saved`);
+  
+  // Update totals
+  await updateTotals(clientId);
+  console.log('   ✅ Totals updated');
+  
+  console.log('\n✅ Import complete! Use --action view to see the data.\n');
+}
+
+/**
  * Main function
  */
 async function main() {
@@ -655,17 +888,17 @@ async function main() {
       break;
       
     case 'parse-statement':
+    case 'import':
       if (!CONFIG.file) {
         console.error('❌ Please provide --file <path to PDF>');
         process.exit(1);
       }
-      console.log('\n⚠️  PDF parsing not yet implemented.');
-      console.log('   For now, use --action add-benefits with manual values from statement.\n');
+      await parseAndImportStatement(client.client_id, CONFIG.file);
       break;
       
     default:
       console.error(`❌ Unknown action: ${action}`);
-      console.log('   Valid actions: list-clients, view, add-manual, add-earnings, add-benefits, parse-statement\n');
+      console.log('   Valid actions: list-clients, view, add-manual, add-earnings, add-benefits, import\n');
       process.exit(1);
   }
   

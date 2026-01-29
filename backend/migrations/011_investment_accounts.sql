@@ -8,13 +8,13 @@ ADD COLUMN IF NOT EXISTS retirement_age INTEGER DEFAULT 65;
 
 -- Create client_partners table for spouse/partner info
 CREATE TABLE IF NOT EXISTS client_partners (
-  id BIGSERIAL PRIMARY KEY,
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   client_id UUID NOT NULL REFERENCES clients(client_id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   birth_date DATE,
   relationship TEXT DEFAULT 'spouse', -- spouse, partner, domestic_partner
   retirement_age INTEGER DEFAULT 65,
-  social_security_id BIGINT REFERENCES social_security(id),
+  social_security_id UUID REFERENCES social_security(id),
   notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -23,9 +23,9 @@ CREATE TABLE IF NOT EXISTS client_partners (
 
 -- Create manual investment accounts table (from statements, not Plaid)
 CREATE TABLE IF NOT EXISTS investment_accounts (
-  id BIGSERIAL PRIMARY KEY,
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   client_id UUID NOT NULL REFERENCES clients(client_id) ON DELETE CASCADE,
-  partner_id BIGINT REFERENCES client_partners(id) ON DELETE SET NULL,
+  partner_id UUID REFERENCES client_partners(id) ON DELETE SET NULL,
   
   -- Account identification (NO account numbers stored)
   account_nickname TEXT NOT NULL, -- User-friendly name like "John's 401k"
@@ -54,8 +54,8 @@ CREATE TABLE IF NOT EXISTS investment_accounts (
 
 -- Create account snapshots table (monthly balance tracking)
 CREATE TABLE IF NOT EXISTS account_snapshots (
-  id BIGSERIAL PRIMARY KEY,
-  account_id BIGINT NOT NULL REFERENCES investment_accounts(id) ON DELETE CASCADE,
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  account_id UUID NOT NULL REFERENCES investment_accounts(id) ON DELETE CASCADE,
   client_id UUID NOT NULL REFERENCES clients(client_id) ON DELETE CASCADE,
   
   -- Timing

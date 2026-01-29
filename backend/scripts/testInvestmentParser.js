@@ -14,40 +14,54 @@ const fs = require('fs');
 const path = require('path');
 const pdfParse = require('pdf-parse');
 
-// Statement type detection patterns
+// Statement type detection patterns - ORDER MATTERS (most specific first)
 const STATEMENT_PATTERNS = {
-  fidelity_401k: {
-    patterns: [/fidelity/i, /401\s*\(?\s*k\s*\)?/i, /retirement\s*plan/i],
-    requiredMatches: 2,
-    custodian: 'Fidelity',
-    accountType: '401k',
-    taxTreatment: 'tax_deferred'
-  },
-  robinhood: {
-    patterns: [/robinhood/i, /account\s*statement/i, /brokerage/i],
-    requiredMatches: 2,
-    custodian: 'Robinhood',
-    accountType: 'brokerage',
-    taxTreatment: 'taxable'
-  },
-  wealthfront_hysa: {
-    patterns: [/wealthfront/i, /cash\s*account/i, /high[\s-]*yield/i, /savings/i, /apy/i],
-    requiredMatches: 2,
-    custodian: 'Wealthfront',
-    accountType: 'HYSA',
-    taxTreatment: 'taxable'
-  },
   wealthfront_roth: {
-    patterns: [/wealthfront/i, /roth\s*ira/i, /individual\s*retirement/i],
+    patterns: [/wealthfront/i, /roth\s*ira/i],
     requiredMatches: 2,
     custodian: 'Wealthfront',
     accountType: 'Roth_IRA',
     taxTreatment: 'tax_free'
   },
   wealthfront_traditional_ira: {
-    patterns: [/wealthfront/i, /traditional\s*ira/i, /individual\s*retirement/i],
+    patterns: [/wealthfront/i, /traditional\s*ira/i],
     requiredMatches: 2,
     custodian: 'Wealthfront',
+    accountType: 'Traditional_IRA',
+    taxTreatment: 'tax_deferred'
+  },
+  wealthfront_hysa: {
+    patterns: [/wealthfront/i, /(?:individual\s*)?cash\s*account|bank\s*sweep/i],
+    requiredMatches: 2,
+    custodian: 'Wealthfront',
+    accountType: 'HYSA',
+    taxTreatment: 'taxable'
+  },
+  wealthfront_brokerage: {
+    patterns: [/wealthfront/i, /individual\s*(?:brokerage|taxable)/i],
+    requiredMatches: 2,
+    custodian: 'Wealthfront',
+    accountType: 'brokerage',
+    taxTreatment: 'taxable'
+  },
+  fidelity_401k: {
+    patterns: [/fidelity/i, /401\s*\(?\s*k\s*\)?/i],
+    requiredMatches: 2,
+    custodian: 'Fidelity',
+    accountType: '401k',
+    taxTreatment: 'tax_deferred'
+  },
+  fidelity_roth_ira: {
+    patterns: [/fidelity/i, /roth\s*ira/i],
+    requiredMatches: 2,
+    custodian: 'Fidelity',
+    accountType: 'Roth_IRA',
+    taxTreatment: 'tax_free'
+  },
+  fidelity_ira: {
+    patterns: [/fidelity/i, /(?:traditional\s*)?ira/i],
+    requiredMatches: 2,
+    custodian: 'Fidelity',
     accountType: 'Traditional_IRA',
     taxTreatment: 'tax_deferred'
   },
@@ -57,6 +71,20 @@ const STATEMENT_PATTERNS = {
     custodian: 'Vanguard',
     accountType: '401k',
     taxTreatment: 'tax_deferred'
+  },
+  robinhood: {
+    patterns: [/robinhood\s*(?:securities|markets|financial)/i, /(?:monthly|account)\s*statement/i],
+    requiredMatches: 2,
+    custodian: 'Robinhood',
+    accountType: 'brokerage',
+    taxTreatment: 'taxable'
+  },
+  schwab_brokerage: {
+    patterns: [/charles\s*schwab|schwab/i, /brokerage/i],
+    requiredMatches: 2,
+    custodian: 'Schwab',
+    accountType: 'brokerage',
+    taxTreatment: 'taxable'
   }
 };
 
@@ -209,60 +237,82 @@ function parseRobinhood(text) {
     assetAllocation: {}
   };
   
-  // Extract statement date
-  const datePatterns = [
-    /statement\s*(?:date|period)[:\s]*(\w+\s+\d{1,2},?\s*\d{4})/i,
-    /(?:as of|ending)\s*(\w+\s+\d{1,2},?\s*\d{4})/i,
-    /(\d{1,2}\/\d{1,2}\/\d{4})/
-  ];
-  result.statementDate = extractDate(text, datePatterns);
+  // Extract statement date from "11/01/2025 to 11/30/2025"
+  const periodMatch = text.match(/(\d{2})\/\d{2}\/(\d{4})\s*to\s*(\d{2})\/(\d{2})\/(\d{4})/);
+  if (periodMatch) {
+    result.statementDate = `${periodMatch[5]}-${periodMatch[3]}-${periodMatch[4]}`;
+  }
   
-  // Extract total portfolio value
-  const valuePatterns = [
-    /(?:total|portfolio)\s*(?:value|equity)[:\s]*\$?([\d,]+\.?\d*)/i,
-    /(?:account|ending)\s*(?:balance|value)[:\s]*\$?([\d,]+\.?\d*)/i
-  ];
+  // Extract total portfolio value - look for "Portfolio Value" followed by amounts
+  // Format: Portfolio Value $1,724.37 $1,733.35 (opening/closing)
+  const portfolioMatch = text.match(/Portfolio\s*Value[\s\n]*\$([\d,]+\.?\d*)[\s\n]*\$([\d,]+\.?\d*)/i);
+  if (portfolioMatch) {
+    result.totalBalance = parseCurrency(portfolioMatch[2]); // Use closing balance
+  }
   
-  for (const pattern of valuePatterns) {
-    const match = text.match(pattern);
-    if (match) {
-      result.totalBalance = parseCurrency(match[1]);
-      if (result.totalBalance > 0) break;
+  // Also try "Total Priced Portfolio"
+  if (result.totalBalance === 0) {
+    const totalMatch = text.match(/Total\s*Priced\s*Portfolio[\s\n]*\$([\d,]+\.?\d*)/i);
+    if (totalMatch) {
+      result.totalBalance = parseCurrency(totalMatch[1]);
     }
   }
   
-  // Extract cash balance
-  const cashPattern = /(?:cash|buying\s*power)[:\s]*\$?([\d,]+\.?\d*)/i;
-  const cashMatch = text.match(cashPattern);
+  // Extract cash balance from "Brokerage Cash Balance"
+  const cashMatch = text.match(/Brokerage\s*Cash\s*Balance[\s\n]*\$([\d,]+\.?\d*)/i);
   if (cashMatch) {
     result.cashBalance = parseCurrency(cashMatch[1]);
   }
   
-  // Extract stock holdings - ticker, shares, price, value
-  const holdingPattern = /([A-Z]{1,5})\s+([\d,]+\.?\d*)\s+\$?([\d,]+\.?\d*)\s+\$?([\d,]+\.?\d*)/g;
+  // Extract stock holdings from Robinhood format
+  // Pattern: TICKER Margin QTY $PRICE $VALUE
+  // Example: AMZN Margin 0.332299 $233.2200 $77.50
+  const holdingPattern = /([A-Z]{1,5})Margin([\d.]+)\$([\d,.]+)\$([\d,.]+)/g;
   let match;
   while ((match = holdingPattern.exec(text)) !== null) {
     const ticker = match[1];
-    const shares = parseFloat(match[2].replace(/,/g, '')) || 0;
+    const shares = parseFloat(match[2]) || 0;
     const price = parseCurrency(match[3]);
     const value = parseCurrency(match[4]);
     
-    if (ticker.length >= 1 && ticker.length <= 5 && value > 0) {
-      result.holdings.push({
-        name: ticker,
-        ticker,
-        shares,
-        price,
-        value,
-        type: 'stock'
-      });
+    if (ticker.length >= 1 && ticker.length <= 5 && value > 0 && shares > 0) {
+      // Avoid duplicates and filter out non-ticker patterns
+      if (!result.holdings.find(h => h.ticker === ticker) && 
+          !['CDIV', 'BUY', 'SELL'].includes(ticker)) {
+        result.holdings.push({
+          name: ticker,
+          ticker,
+          shares: Math.round(shares * 1000000) / 1000000, // 6 decimal places
+          price,
+          value,
+          type: ticker.length <= 4 ? 'stock' : 'etf'
+        });
+      }
     }
   }
+  
+  // Calculate asset allocation
+  let equityValue = 0;
+  let etfValue = 0;
+  
+  for (const holding of result.holdings) {
+    if (['IGIB', 'SCHD', 'VOO', 'QQQM'].includes(holding.ticker)) {
+      etfValue += holding.value;
+    } else {
+      equityValue += holding.value;
+    }
+  }
+  
+  result.assetAllocation = {
+    stocks: Math.round(equityValue * 100) / 100,
+    etfs: Math.round(etfValue * 100) / 100,
+    cash: result.cashBalance
+  };
   
   return result;
 }
 
-// Parse Wealthfront HYSA statement
+// Parse Wealthfront HYSA/Cash Account statement
 function parseWealthfrontHYSA(text) {
   const result = {
     statementDate: null,
@@ -273,26 +323,28 @@ function parseWealthfrontHYSA(text) {
     assetAllocation: { cash: 0 }
   };
   
-  // Extract statement date
-  const datePatterns = [
-    /(?:statement\s*(?:date|period)|as of)[:\s]*(\w+\s+\d{1,2},?\s*\d{4})/i,
-    /(\w+\s+\d{4})\s*statement/i,
-    /(?:ending|through)\s*(\w+\s+\d{1,2},?\s*\d{4})/i
-  ];
-  result.statementDate = extractDate(text, datePatterns);
+  // Extract statement date from "Monthly Statement for October 1 - 31, 2025"
+  const periodMatch = text.match(/Monthly\s*Statement\s*for\s*(\w+)\s*\d+\s*[-–]\s*\d+,?\s*(\d{4})/i);
+  if (periodMatch) {
+    const month = periodMatch[1];
+    const year = periodMatch[2];
+    // Get last day of month for statement date
+    const monthNum = new Date(`${month} 1, ${year}`).getMonth();
+    const lastDay = new Date(year, monthNum + 1, 0).getDate();
+    result.statementDate = `${year}-${String(monthNum + 1).padStart(2, '0')}-${lastDay}`;
+  }
   
-  // Extract balance
-  const balancePatterns = [
-    /(?:ending|current|account)\s*balance[:\s]*\$?([\d,]+\.?\d*)/i,
-    /(?:total|available)\s*(?:balance|cash)[:\s]*\$?([\d,]+\.?\d*)/i,
-    /balance[:\s]*\$?([\d,]+\.?\d*)/i
-  ];
+  // Extract balance - look for "Ending Balance" followed by amount
+  const endingBalanceMatch = text.match(/Ending\s*Balance[\s\n]*\$?([\d,]+\.?\d*)/i);
+  if (endingBalanceMatch) {
+    result.totalBalance = parseCurrency(endingBalanceMatch[1]);
+  }
   
-  for (const pattern of balancePatterns) {
-    const match = text.match(pattern);
-    if (match) {
-      result.totalBalance = parseCurrency(match[1]);
-      if (result.totalBalance > 0) break;
+  // Also try "Total Holdings"
+  if (result.totalBalance === 0) {
+    const totalHoldingsMatch = text.match(/Total\s*Holdings[\s\n]*\$?([\d,]+\.?\d*)/i);
+    if (totalHoldingsMatch) {
+      result.totalBalance = parseCurrency(totalHoldingsMatch[1]);
     }
   }
   
@@ -306,15 +358,15 @@ function parseWealthfrontHYSA(text) {
   }
   
   // Extract interest earned
-  const interestPattern = /interest\s*(?:earned|paid)[:\s]*\$?([\d,]+\.?\d*)/i;
+  const interestPattern = /interest[\s\n]*\$?([\d,]+\.?\d*)/i;
   const interestMatch = text.match(interestPattern);
-  if (interestMatch) {
+  if (interestMatch && parseCurrency(interestMatch[1]) < result.totalBalance) {
     result.interestEarned = parseCurrency(interestMatch[1]);
   }
   
   // HYSA is just cash
   result.holdings.push({
-    name: 'Cash',
+    name: 'Cash (HYSA)',
     ticker: null,
     shares: 1,
     price: result.totalBalance,
@@ -335,65 +387,88 @@ function parseWealthfrontIRA(text) {
     assetAllocation: {}
   };
   
-  // Extract statement date
-  const datePatterns = [
-    /(?:statement\s*(?:date|period)|as of)[:\s]*(\w+\s+\d{1,2},?\s*\d{4})/i,
-    /(\w+\s+\d{4})\s*statement/i
-  ];
-  result.statementDate = extractDate(text, datePatterns);
+  // Extract statement date from "Monthly Statement for November 1 - 30, 2025"
+  const periodMatch = text.match(/Monthly\s*Statement\s*for\s*(\w+)\s*\d+\s*[-–]\s*(\d+),?\s*(\d{4})/i);
+  if (periodMatch) {
+    const month = periodMatch[1];
+    const day = periodMatch[2];
+    const year = periodMatch[3];
+    const monthNum = new Date(`${month} 1, ${year}`).getMonth() + 1;
+    result.statementDate = `${year}-${String(monthNum).padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
   
-  // Extract total balance
-  const balancePatterns = [
-    /(?:account|portfolio|total)\s*(?:value|balance)[:\s]*\$?([\d,]+\.?\d*)/i,
-    /(?:ending|current)\s*(?:balance|value)[:\s]*\$?([\d,]+\.?\d*)/i
-  ];
+  // Extract total balance - look for "Ending Balance" or "Total Holdings"
+  const endingBalanceMatch = text.match(/Ending\s*Balance[\s\n]*\$?([\d,]+\.?\d*)/i);
+  if (endingBalanceMatch) {
+    result.totalBalance = parseCurrency(endingBalanceMatch[1]);
+  }
   
-  for (const pattern of balancePatterns) {
-    const match = text.match(pattern);
-    if (match) {
-      result.totalBalance = parseCurrency(match[1]);
-      if (result.totalBalance > 0) break;
+  // Also try "Total Holdings" as backup
+  const totalHoldingsMatch = text.match(/Total\s*Holdings[\s\n]*\$?([\d,]+\.?\d*)/i);
+  if (totalHoldingsMatch) {
+    const holdingsTotal = parseCurrency(totalHoldingsMatch[1]);
+    if (holdingsTotal > result.totalBalance) {
+      result.totalBalance = holdingsTotal;
     }
   }
   
-  // Extract ETF holdings (Wealthfront uses ETFs)
-  // Look for patterns like: VTI 45.123 $245.50 $11,076.42
-  const holdingPattern = /([A-Z]{2,5})\s+([\d,]+\.?\d*)\s+\$?([\d,]+\.?\d*)\s+\$?([\d,]+\.?\d*)/g;
+  // Extract ETF holdings from Wealthfront format
+  // Look for patterns like: VTI 15 $336.31 $5,044.65 or with decimal shares
+  // Pattern: TICKER SHARES $PRICE $VALUE
+  const holdingPattern = /([A-Z]{2,5})\s+([\d.]+)\s+\$([\d,.]+)\s+\$([\d,.]+)/g;
   let match;
   while ((match = holdingPattern.exec(text)) !== null) {
     const ticker = match[1];
-    const shares = parseFloat(match[2].replace(/,/g, '')) || 0;
+    const shares = parseFloat(match[2]) || 0;
     const price = parseCurrency(match[3]);
     const value = parseCurrency(match[4]);
     
-    if (ticker.length >= 2 && ticker.length <= 5 && value > 0) {
-      result.holdings.push({
-        name: ticker,
-        ticker,
-        shares,
-        price,
-        value,
-        type: 'etf'
-      });
+    // Validate: ticker should be 2-5 uppercase letters, value should be reasonable
+    if (ticker.length >= 2 && ticker.length <= 5 && value > 0 && shares > 0) {
+      // Avoid duplicates
+      if (!result.holdings.find(h => h.ticker === ticker)) {
+        result.holdings.push({
+          name: ticker,
+          ticker,
+          shares,
+          price,
+          value,
+          type: 'etf'
+        });
+      }
     }
   }
   
-  // Also look for ETF allocations by percentage
-  const allocationPattern = /([A-Z]{2,5})\s*[-–]\s*[\w\s]+\s+(\d+\.?\d*)%/g;
-  while ((match = allocationPattern.exec(text)) !== null) {
-    const ticker = match[1];
-    const percentage = parseFloat(match[2]) / 100;
-    if (!result.holdings.find(h => h.ticker === ticker)) {
-      result.holdings.push({
-        name: ticker,
-        ticker,
-        shares: 0,
-        price: 0,
-        value: Math.round(result.totalBalance * percentage * 100) / 100,
-        percentage,
-        type: 'etf'
-      });
+  // Calculate asset allocation from holdings
+  let stockValue = 0;
+  let bondValue = 0;
+  let cashValue = 0;
+  
+  const stockETFs = ['VTI', 'VEA', 'VWO', 'VNQ', 'SCHB', 'SCHA', 'SCHF', 'SCHE'];
+  const bondETFs = ['LQD', 'SCHP', 'BND', 'AGG', 'TIP', 'VTIP'];
+  const cashETFs = ['TIMXX', 'VMFXX'];
+  
+  for (const holding of result.holdings) {
+    if (stockETFs.includes(holding.ticker)) {
+      stockValue += holding.value;
+    } else if (bondETFs.includes(holding.ticker)) {
+      bondValue += holding.value;
+    } else if (cashETFs.includes(holding.ticker)) {
+      cashValue += holding.value;
+    } else {
+      stockValue += holding.value; // Default to stocks
     }
+  }
+  
+  result.assetAllocation = {
+    stocks: Math.round(stockValue * 100) / 100,
+    bonds: Math.round(bondValue * 100) / 100,
+    cash: Math.round(cashValue * 100) / 100
+  };
+  
+  // If total balance is still 0, calculate from holdings
+  if (result.totalBalance === 0 && result.holdings.length > 0) {
+    result.totalBalance = result.holdings.reduce((sum, h) => sum + h.value, 0);
   }
   
   // Extract YTD contributions

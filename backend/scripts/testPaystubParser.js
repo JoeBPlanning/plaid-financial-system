@@ -23,15 +23,47 @@ const debug = args.includes('--debug');
 
 /**
  * Parse currency string to number (handles negatives)
+ * Also handles concatenated numbers without decimals
  */
 function parseCurrency(str) {
   if (!str) return 0;
   const clean = str.replace(/[,$\s]/g, '');
   // Handle negative with minus or parentheses
-  if (clean.includes('(') || clean.startsWith('-')) {
-    return -Math.abs(parseFloat(clean.replace(/[()]/g, '')));
+  const isNegative = clean.includes('(') || clean.startsWith('-');
+  const numStr = clean.replace(/[()-]/g, '');
+  
+  let value = parseFloat(numStr) || 0;
+  
+  // If no decimal point and looks like cents are included (common paystub format)
+  // Numbers like "46153" should become 461.53, "10801185" should become 108011.85
+  if (!str.includes('.') && value > 100) {
+    value = value / 100;
   }
-  return parseFloat(clean) || 0;
+  
+  return isNegative ? -Math.abs(value) : value;
+}
+
+/**
+ * Extract a number that might be concatenated (no decimals in source)
+ * Assumes 2 decimal places for currency
+ */
+function extractConcatenatedAmount(numStr) {
+  if (!numStr) return 0;
+  const clean = numStr.replace(/[^0-9-]/g, '');
+  if (!clean) return 0;
+  
+  const isNegative = clean.startsWith('-');
+  const absStr = clean.replace('-', '');
+  
+  // Insert decimal point 2 places from end
+  let value;
+  if (absStr.length > 2) {
+    value = parseFloat(absStr.slice(0, -2) + '.' + absStr.slice(-2));
+  } else {
+    value = parseFloat('0.' + absStr.padStart(2, '0'));
+  }
+  
+  return isNegative ? -value : value;
 }
 
 /**
@@ -146,7 +178,7 @@ function extractDates(text) {
 }
 
 /**
- * Extract earnings from text
+ * Extract earnings from text (handles concatenated format)
  */
 function extractEarnings(text) {
   const earnings = {
@@ -162,43 +194,58 @@ function extractEarnings(text) {
     gross: { current: 0, ytd: 0 }
   };
   
-  // Regular pay pattern - look for "Regular" followed by amounts
-  let match = text.match(/Regular[\s\S]*?([\d,]+\.?\d*)\s+([\d,]+\.?\d*)/i);
+  // Regular pay - format: Regular[rate][rate][thisPeriod][ytd]
+  // Example: Regular46153946153910801185 = 4615.39, 4615.39, 108011.85
+  let match = text.match(/Regular(\d{5,8})(\d{5,8})(\d{7,10})/i);
   if (match) {
-    earnings.regular.current = parseCurrency(match[1]);
-    earnings.regular.ytd = parseCurrency(match[2]);
+    // First number is rate, second is this period (same as rate for salary), third is YTD
+    earnings.regular.current = extractConcatenatedAmount(match[2]);
+    earnings.regular.ytd = extractConcatenatedAmount(match[3]);
   }
   
-  // Holiday
-  match = text.match(/Holiday[\s\S]*?([\d,]+\.?\d*)/i);
-  if (match) earnings.holiday.current = parseCurrency(match[1]);
-  
-  // Vacation
-  match = text.match(/Vacation[\s\S]*?([\d,]+\.?\d*)/i);
-  if (match) earnings.vacation.current = parseCurrency(match[1]);
-  
-  // Fringe
-  match = text.match(/Fringe[\s\S]*?([\d,]+\.?\d*)\s+([\d,]+\.?\d*)/i);
+  // Holiday - format: Holiday[amount] (usually small, 4 digits = 20.00)
+  match = text.match(/Holiday(\d{3,6})/i);
   if (match) {
-    earnings.fringe.current = parseCurrency(match[1]);
-    earnings.fringe.ytd = parseCurrency(match[2]);
+    earnings.holiday.current = extractConcatenatedAmount(match[1]);
+  }
+  
+  // Vacation - format: Vacation[amount]
+  match = text.match(/Vacation(\d{3,6})/i);
+  if (match) {
+    earnings.vacation.current = extractConcatenatedAmount(match[1]);
+  }
+  
+  // Fringe - format: Fringe[ytd] (appears in YTD column)
+  match = text.match(/Fringe(\d{4,8})/i);
+  if (match) {
+    earnings.fringe.ytd = extractConcatenatedAmount(match[1]);
+  }
+  
+  // Gross Pay - format: GrossPay$[thisPeriod] and later [ytd]
+  // Looking for pattern like: GrossPay$464039 and 10913685
+  match = text.match(/GrossPay\$?(\d{5,8})/i);
+  if (match) {
+    earnings.gross.current = extractConcatenatedAmount(match[1]);
+  }
+  
+  // YTD gross is usually near the top - look for pattern after period ending
+  // The raw shows: 10913685 which is 109136.85
+  match = text.match(/\$(\d{6,10})\s*(?:Filing|Excluded)/i);
+  if (match) {
+    earnings.gross.ytd = extractConcatenatedAmount(match[1]);
   } else {
-    match = text.match(/Fringe[\s\S]*?([\d,]+\.?\d*)/i);
-    if (match) earnings.fringe.ytd = parseCurrency(match[1]);
-  }
-  
-  // Gross Pay
-  match = text.match(/Gross\s*Pay[\s\S]*?\$?([\d,]+\.?\d*)\s+([\d,]+\.?\d*)/i);
-  if (match) {
-    earnings.gross.current = parseCurrency(match[1]);
-    earnings.gross.ytd = parseCurrency(match[2]);
+    // Alternative: look for the large number after pay date area
+    match = text.match(/PayDate[:\s\d\/]+[\s\S]*?(\d{8,10})(?=\s*Filing|Excluded)/i);
+    if (match) {
+      earnings.gross.ytd = extractConcatenatedAmount(match[1]);
+    }
   }
   
   return earnings;
 }
 
 /**
- * Extract deductions from text
+ * Extract deductions from text (handles concatenated format)
  */
 function extractDeductions(text) {
   const deductions = {
@@ -214,94 +261,105 @@ function extractDeductions(text) {
     other: {}
   };
   
-  // Federal Income Tax
-  let match = text.match(/Federal\s*(?:Income)?\s*Tax[\s\S]*?-?([\d,]+\.?\d*)\s+([\d,]+\.?\d*)/i);
+  // Federal Income Tax - format: FederalIncomeTax-[current][ytd]
+  // Example: -571221270304 = -571.22, 12703.04
+  let match = text.match(/Federal(?:Income)?Tax-?(\d{4,6})(\d{6,9})/i);
   if (match) {
-    deductions.statutory.federal.current = Math.abs(parseCurrency(match[1]));
-    deductions.statutory.federal.ytd = parseCurrency(match[2]);
+    deductions.statutory.federal.current = extractConcatenatedAmount(match[1]);
+    deductions.statutory.federal.ytd = extractConcatenatedAmount(match[2]);
   }
   
-  // Social Security Tax
-  match = text.match(/Social\s*Security\s*(?:Tax)?[\s\S]*?-?([\d,]+\.?\d*)\s+([\d,]+\.?\d*)/i);
+  // Social Security Tax - format: SocialSecurityTax-[current][ytd]
+  // Example: -27573647543 = -275.73, 6475.43
+  match = text.match(/SocialSecurityTax-?(\d{4,6})(\d{5,8})/i);
   if (match) {
-    deductions.statutory.socialSecurity.current = Math.abs(parseCurrency(match[1]));
-    deductions.statutory.socialSecurity.ytd = parseCurrency(match[2]);
+    deductions.statutory.socialSecurity.current = extractConcatenatedAmount(match[1]);
+    deductions.statutory.socialSecurity.ytd = extractConcatenatedAmount(match[2]);
   }
   
-  // Medicare Tax
-  match = text.match(/Medicare\s*(?:Tax)?[\s\S]*?-?([\d,]+\.?\d*)\s+([\d,]+\.?\d*)/i);
+  // Medicare Tax - format: MedicareTax-[current][ytd]
+  // Example: -6448151441 = -64.48, 1514.41
+  match = text.match(/MedicareTax-?(\d{3,5})(\d{5,8})/i);
   if (match) {
-    deductions.statutory.medicare.current = Math.abs(parseCurrency(match[1]));
-    deductions.statutory.medicare.ytd = parseCurrency(match[2]);
+    deductions.statutory.medicare.current = extractConcatenatedAmount(match[1]);
+    deductions.statutory.medicare.ytd = extractConcatenatedAmount(match[2]);
   }
   
-  // State Income Tax (MD, VA, etc.)
-  match = text.match(/(?:MD|VA|CA|NY|TX|FL|State)\s*(?:State)?\s*(?:Income)?\s*Tax[\s\S]*?-?([\d,]+\.?\d*)\s+([\d,]+\.?\d*)/i);
+  // State Income Tax (MD, VA, etc.) - format: MDStateIncomeTax-[current][ytd]
+  // Example: -31753739075 = -317.53, 7390.75
+  match = text.match(/(?:MD|VA|CA|NY)StateIncomeTax-?(\d{4,6})(\d{5,8})/i);
   if (match) {
-    deductions.statutory.state.current = Math.abs(parseCurrency(match[1]));
-    deductions.statutory.state.ytd = parseCurrency(match[2]);
+    deductions.statutory.state.current = extractConcatenatedAmount(match[1]);
+    deductions.statutory.state.ytd = extractConcatenatedAmount(match[2]);
   }
   
-  // 401K (pre-tax)
-  match = text.match(/401[Kk][\s\S]*?-?([\d,]+\.?\d*)\*?\s+([\d,]+\.?\d*)/i);
+  // 401K (pre-tax) - format: 401K-[current]*[ytd]
+  // Example: -23077*620364 = -230.77, 6203.64
+  match = text.match(/401K-?(\d{4,6})\*?(\d{5,8})/i);
   if (match) {
     deductions.preTax['401k'] = {
-      current: Math.abs(parseCurrency(match[1])),
-      ytd: parseCurrency(match[2])
+      current: extractConcatenatedAmount(match[1]),
+      ytd: extractConcatenatedAmount(match[2])
     };
   }
   
-  // Roth (after-tax)
-  match = text.match(/Roth[\s\S]*?-?([\d,]+\.?\d*)\s+([\d,]+\.?\d*)/i);
+  // Roth (after-tax) - format: Roth$-[current][ytd]
+  // Example: -46154253847 = -461.54, 2538.47
+  match = text.match(/Roth\$?-?(\d{4,6})(\d{5,8})/i);
   if (match) {
     deductions.afterTax['roth'] = {
-      current: Math.abs(parseCurrency(match[1])),
-      ytd: parseCurrency(match[2])
+      current: extractConcatenatedAmount(match[1]),
+      ytd: extractConcatenatedAmount(match[2])
     };
   }
   
-  // FSA (pre-tax) - Health
-  match = text.match(/(?:Prtx\s*)?Fsa[\s\S]*?-?([\d,]+\.?\d*)\*?\s+([\d,]+\.?\d*)/i);
+  // FSA (pre-tax) - format: PrtxFsa-[current]*[ytd]
+  // Example: -10000*250000 = -100.00, 2500.00
+  match = text.match(/PrtxFsa-?(\d{4,6})\*?(\d{5,8})/i);
   if (match) {
     deductions.preTax['fsa_health'] = {
-      current: Math.abs(parseCurrency(match[1])),
-      ytd: parseCurrency(match[2])
+      current: extractConcatenatedAmount(match[1]),
+      ytd: extractConcatenatedAmount(match[2])
     };
   }
   
-  // Medical (pre-tax)
-  match = text.match(/(?:Prtx\s*)?Med[\s\S]*?-?([\d,]+\.?\d*)\*?\s+([\d,]+\.?\d*)/i);
+  // Medical (pre-tax) - format: PrtxMed-[current]*[ytd]
+  // Example: -7000*161000 = -70.00, 1610.00
+  match = text.match(/PrtxMed-?(\d{3,6})\*?(\d{5,8})/i);
   if (match) {
     deductions.preTax['health_insurance'] = {
-      current: Math.abs(parseCurrency(match[1])),
-      ytd: parseCurrency(match[2])
+      current: extractConcatenatedAmount(match[1]),
+      ytd: extractConcatenatedAmount(match[2])
     };
   }
   
-  // Dental
-  match = text.match(/Dental[\s\S]*?-?([\d,]+\.?\d*)\*?\s+([\d,]+\.?\d*)/i);
+  // Dental - format: Dental-[current]*[ytd]
+  // Example: -550*12650 = -5.50, 126.50
+  match = text.match(/Dental-?(\d{2,5})\*?(\d{4,7})/i);
   if (match) {
     deductions.preTax['dental'] = {
-      current: Math.abs(parseCurrency(match[1])),
-      ytd: parseCurrency(match[2])
+      current: extractConcatenatedAmount(match[1]),
+      ytd: extractConcatenatedAmount(match[2])
     };
   }
   
-  // Vision
-  match = text.match(/Vision[\s\S]*?-?([\d,]+\.?\d*)\*?\s+([\d,]+\.?\d*)/i);
+  // Vision - format: Vision-[current]*[ytd]
+  // Example: -150*3450 = -1.50, 34.50
+  match = text.match(/Vision-?(\d{2,4})\*?(\d{3,6})/i);
   if (match) {
     deductions.preTax['vision'] = {
-      current: Math.abs(parseCurrency(match[1])),
-      ytd: parseCurrency(match[2])
+      current: extractConcatenatedAmount(match[1]),
+      ytd: extractConcatenatedAmount(match[2])
     };
   }
   
-  // Vol Term Life (after-tax usually)
-  match = text.match(/Vol(?:untary)?\s*(?:Term)?\s*Life[\s\S]*?-?([\d,]+\.?\d*)\s+([\d,]+\.?\d*)/i);
+  // Vol Term Life (after-tax) - format: VolTermLife-[current][ytd]
+  // Example: -90020700 = -9.00, 207.00
+  match = text.match(/VolTermLife-?(\d{2,5})(\d{4,7})/i);
   if (match) {
     deductions.afterTax['life_insurance'] = {
-      current: Math.abs(parseCurrency(match[1])),
-      ytd: parseCurrency(match[2])
+      current: extractConcatenatedAmount(match[1]),
+      ytd: extractConcatenatedAmount(match[2])
     };
   }
   
@@ -309,29 +367,31 @@ function extractDeductions(text) {
 }
 
 /**
- * Extract employer contributions
+ * Extract employer contributions (handles concatenated format)
  */
 function extractEmployerContributions(text) {
   const contributions = {
     match401k: { current: 0, ytd: 0 }
   };
   
-  // Er Contribution (employer 401k match)
-  let match = text.match(/Er\s*Contribution[\s\S]*?([\d,]+\.?\d*)\s+([\d,]+\.?\d*)/i);
+  // Er Contribution (employer 401k match) - format: ErContribution[current][ytd]
+  // Example: 461541080117 = 461.54, 10801.17
+  let match = text.match(/ErContribution(\d{4,6})(\d{6,9})/i);
   if (match) {
-    contributions.match401k.current = parseCurrency(match[1]);
-    contributions.match401k.ytd = parseCurrency(match[2]);
+    contributions.match401k.current = extractConcatenatedAmount(match[1]);
+    contributions.match401k.ytd = extractConcatenatedAmount(match[2]);
   }
   
   return contributions;
 }
 
 /**
- * Extract net pay
+ * Extract net pay (handles concatenated format)
  */
 function extractNetPay(text) {
-  let match = text.match(/Net\s*Pay[\s\S]*?\$?([\d,]+\.?\d*)/i);
-  if (match) return parseCurrency(match[1]);
+  // NetPay$[amount] - Example: NetPay$250787 = 2507.87
+  let match = text.match(/NetPay\$?(\d{5,8})/i);
+  if (match) return extractConcatenatedAmount(match[1]);
   return 0;
 }
 

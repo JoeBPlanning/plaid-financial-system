@@ -14,7 +14,9 @@
     "ss": "node scripts/socialSecurityManager.js",
     "social-security": "node scripts/socialSecurityManager.js",
     "test-ss-parser": "node scripts/testSSParser.js",
-    "parse-ss": "node scripts/testSSParser.js"
+    "parse-ss": "node scripts/testSSParser.js",
+    "test-paystub": "node scripts/testPaystubParser.js",
+    "parse-paystub": "node scripts/testPaystubParser.js"
   },
   "keywords": [],
   "author": "",

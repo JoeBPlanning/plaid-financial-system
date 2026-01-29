@@ -292,7 +292,7 @@ function extractDeductions(text) {
     deductions.statutory.state.ytd = extractConcatenatedAmount(match[2]);
   }
   
-  // Dental: ~$5.50 current, ~$126.50 YTD
+  // Dental: ~$5.50 current, ~$126.50 YTD (pre-tax, has *)
   // Pattern after "MedicareTax" label: -550*12650
   match = text.match(/MedicareTax[\s\n]*-(\d{3})\*(\d{5})/i);
   if (match) {
@@ -302,8 +302,18 @@ function extractDeductions(text) {
     };
   }
   
-  // FSA Health: ~$100.00 current, ~$2,500.00 YTD
-  // Pattern after "Dental": -10000*250000
+  // IDLEG: ~$25.25 current (after-tax service, no YTD in raw)
+  // Pattern after "MDStateIncomeTax" label: -2525
+  match = text.match(/MDStateIncomeTax[\s\n]*-(\d{4})[\s\n]/i);
+  if (match) {
+    deductions.afterTax['idleg'] = {
+      current: extractConcatenatedAmount(match[1]),
+      ytd: 0
+    };
+  }
+  
+  // FSA Health: ~$100.00 current, ~$2,500.00 YTD (pre-tax, has *)
+  // Pattern after "Dental" label: -10000*250000
   match = text.match(/Dental[\s\n]*-(\d{5})\*(\d{6})/i);
   if (match) {
     deductions.preTax['fsa_health'] = {
@@ -312,9 +322,9 @@ function extractDeductions(text) {
     };
   }
   
-  // Health Insurance (PrtxMed): ~$70.00 current, ~$1,610.00 YTD
-  // Pattern after "PrtxFsa": -7000*161000
-  match = text.match(/PrtxFsa[\s\n]*-(\d{4})\*(\d{6})/i);
+  // Health Insurance (PrtxMed): ~$70.00 current, ~$1,610.00 YTD (pre-tax, has *)
+  // Pattern after "IDLEG" label: -7000*161000
+  match = text.match(/IDLEG[\s\n]*-(\d{4})\*(\d{6})/i);
   if (match) {
     deductions.preTax['health_insurance'] = {
       current: extractConcatenatedAmount(match[1]),
@@ -322,19 +332,19 @@ function extractDeductions(text) {
     };
   }
   
-  // Roth 401k: ~$461.54 current, ~$2,538.47 YTD
-  // Pattern after "PrtxMed": -46154253847
-  match = text.match(/PrtxMed[\s\n]*-(\d{5})(\d{6})/i);
+  // Roth 401k: ~$461.54 current, ~$2,538.47 YTD (after-tax)
+  // Pattern after "PrtxFsa" label: -46154253847
+  match = text.match(/PrtxFsa[\s\n]*-(\d{5})(\d{6})/i);
   if (match) {
-    deductions.afterTax['roth'] = {
+    deductions.afterTax['roth_401k'] = {
       current: extractConcatenatedAmount(match[1]),
       ytd: extractConcatenatedAmount(match[2])
     };
   }
   
-  // Vision: ~$1.50 current, ~$34.50 YTD
-  // Pattern after "Roth$": -150*3450
-  match = text.match(/Roth\$[\s\n]*-(\d{3})\*(\d{4})/i);
+  // Vision: ~$1.50 current, ~$34.50 YTD (pre-tax, has *)
+  // Pattern after "PrtxMed" label: -150*3450
+  match = text.match(/PrtxMed[\s\n]*-(\d{3})\*(\d{4})/i);
   if (match) {
     deductions.preTax['vision'] = {
       current: extractConcatenatedAmount(match[1]),
@@ -342,19 +352,19 @@ function extractDeductions(text) {
     };
   }
   
-  // Life Insurance (VolTermLife): ~$9.00 current, ~$207.00 YTD
-  // Pattern after "Vision": -90020700
-  match = text.match(/Vision[\s\n]*-(\d{3})(\d{5})/i);
+  // Vol Term Life: ~$9.00 current, ~$207.00 YTD (after-tax)
+  // Pattern after "Roth$" label: -90020700
+  match = text.match(/Roth\$[\s\n]*-(\d{3})(\d{5})/i);
   if (match) {
-    deductions.afterTax['life_insurance'] = {
+    deductions.afterTax['vol_life_insurance'] = {
       current: extractConcatenatedAmount(match[1]),
       ytd: extractConcatenatedAmount(match[2])
     };
   }
   
-  // 401K: ~$230.77 current, ~$6,203.64 YTD
-  // Pattern after "VolTermLife": -23077*620364
-  match = text.match(/VolTermLife[\s\n]*-(\d{5})\*(\d{6})/i);
+  // 401K: ~$230.77 current, ~$6,203.64 YTD (pre-tax, has *)
+  // Pattern after "Vision" label: -23077*620364
+  match = text.match(/Vision[\s\n]*-(\d{5})\*(\d{6})/i);
   if (match) {
     deductions.preTax['401k'] = {
       current: extractConcatenatedAmount(match[1]),

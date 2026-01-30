@@ -62,7 +62,8 @@ app.use(helmet()); // Security headers
 // CORS configuration - allow both development and production frontends
 const allowedOrigins = [
   'http://localhost:3000',
-  'https://plaid-financial-system-frontend.onrender.com', // Production frontend
+  'https://plaid-financial-system-frontend.onrender.com', // Old frontend URL
+  'https://bpafinancialreports.onrender.com', // New frontend URL
   'https://plaid-financial-system-api.onrender.com',
   process.env.FRONTEND_URL // Allow custom frontend URL from env
 ].filter(Boolean); // Remove undefined values

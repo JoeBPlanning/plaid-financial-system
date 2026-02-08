@@ -41,7 +41,7 @@ While we take extensive measures to protect your data, your active participation
 
 For a more detailed explanation of how we collect, use, and protect your personal information, please refer to our full Privacy Policy.
 
-[Link to Your Privacy Policy Here] (e.g., `https://yourwebapp.com/privacy-policy`)
+`https://bautistaplanningandanalytics.com/privacy-policy-financial-planning/`)
 
 ---
 

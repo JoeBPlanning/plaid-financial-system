@@ -1,9 +1,22 @@
 const { getDatabase } = require('../database');
 
+const VALID_COLUMNS = new Set([
+  'id', 'clientId', 'username', 'name', 'email', 'password',
+  'isActive', 'advisorId', 'preferences', 'clientProfile',
+  'createdAt', 'updatedAt'
+]);
+
+function validateColumn(col) {
+  if (!VALID_COLUMNS.has(col)) {
+    throw new Error(`Invalid column name: ${col}`);
+  }
+  return col;
+}
+
 class Client {
   static findOne(query) {
     const db = getDatabase();
-    const stmt = db.prepare('SELECT * FROM clients WHERE ' + Object.keys(query).map(k => `${k} = ?`).join(' AND '));
+    const stmt = db.prepare('SELECT * FROM clients WHERE ' + Object.keys(query).map(k => `${validateColumn(k)} = ?`).join(' AND '));
     const params = Object.values(query);
     const row = stmt.get(...params);
     
@@ -49,7 +62,7 @@ class Client {
 
     if (Object.keys(query).length > 0) {
       Object.keys(query).forEach(key => {
-        conditions.push(`${key} = ?`);
+        conditions.push(`${validateColumn(key)} = ?`);
         params.push(query[key]);
       });
       sql += ' WHERE ' + conditions.join(' AND ');
@@ -57,7 +70,7 @@ class Client {
 
     const stmt = db.prepare(sql);
     const rows = params.length > 0 ? stmt.all(...params) : stmt.all();
-    
+
     return rows.map(row => ({
       ...row,
       plaidAccessTokens: Client.getPlaidTokens(row.clientId),
@@ -214,7 +227,7 @@ class Client {
     const params = [];
 
     Object.keys(query).forEach(key => {
-      conditions.push(`${key} = ?`);
+      conditions.push(`${validateColumn(key)} = ?`);
       params.push(query[key]);
     });
 

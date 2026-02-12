@@ -1,5 +1,20 @@
 const { getDatabase } = require('../database');
 
+const VALID_COLUMNS = new Set([
+  'id', 'clientId', 'plaidTransactionId', 'accountId', 'accountType',
+  'accountSubtype', 'accountName', 'accountMask', 'amount', 'date',
+  'name', 'merchantName', 'category', 'plaidCategory', 'plaidSubCategory',
+  'personalFinanceCategory', 'suggestedCategory', 'userCategory',
+  'isReviewed', 'monthYear', 'notes', 'institution', 'createdAt', 'updatedAt'
+]);
+
+function validateColumn(col) {
+  if (!VALID_COLUMNS.has(col)) {
+    throw new Error(`Invalid column name: ${col}`);
+  }
+  return col;
+}
+
 class Transaction {
   static find(query = {}, options = {}) {
     const db = getDatabase();
@@ -10,18 +25,19 @@ class Transaction {
     if (Object.keys(query).length > 0) {
       Object.keys(query).forEach(key => {
         if (key === 'monthYear' && query[key].$in) {
+          validateColumn(key);
           conditions.push(`monthYear IN (${query[key].$in.map(() => '?').join(',')})`);
           params.push(...query[key].$in);
         } else if (typeof query[key] === 'object' && query[key] !== null && query[key].$gte) {
           const value = query[key].$gte instanceof Date ? query[key].$gte.toISOString() : query[key].$gte;
-          conditions.push(`${key} >= ?`);
+          conditions.push(`${validateColumn(key)} >= ?`);
           params.push(value);
         } else if (typeof query[key] === 'object' && query[key] !== null && query[key].$lte) {
           const value = query[key].$lte instanceof Date ? query[key].$lte.toISOString() : query[key].$lte;
-          conditions.push(`${key} <= ?`);
+          conditions.push(`${validateColumn(key)} <= ?`);
           params.push(value);
         } else {
-          conditions.push(`${key} = ?`);
+          conditions.push(`${validateColumn(key)} = ?`);
           params.push(query[key]);
         }
       });
@@ -57,7 +73,7 @@ class Transaction {
           if (k === '_id') {
             return 'plaidTransactionId = ?';
           }
-          return `${k} = ?`;
+          return `${validateColumn(k)} = ?`;
         });
         orConditions.push('(' + conditionParts.join(' AND ') + ')');
         // Push values in the same order as the conditions
@@ -74,7 +90,7 @@ class Transaction {
           if (key === '_id') {
             conditions.push('plaidTransactionId = ?');
           } else {
-            conditions.push(`${key} = ?`);
+            conditions.push(`${validateColumn(key)} = ?`);
           }
           params.push(query[key]);
         }
@@ -192,7 +208,7 @@ class Transaction {
     const params = [];
 
     Object.keys(query).forEach(key => {
-      conditions.push(`${key} = ?`);
+      conditions.push(`${validateColumn(key)} = ?`);
       params.push(query[key]);
     });
 

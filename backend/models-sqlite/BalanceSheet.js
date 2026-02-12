@@ -1,5 +1,19 @@
 const { getDatabase } = require('../database');
 
+const VALID_COLUMNS = new Set([
+  'id', 'clientId', 'snapshotDate', 'monthYear',
+  'assets', 'liabilities', 'netWorth',
+  'assetBreakdown', 'liabilityBreakdown',
+  'createdAt', 'updatedAt'
+]);
+
+function validateColumn(col) {
+  if (!VALID_COLUMNS.has(col)) {
+    throw new Error(`Invalid column name: ${col}`);
+  }
+  return col;
+}
+
 class BalanceSheet {
   static find(query = {}, options = {}) {
     const db = getDatabase();
@@ -49,7 +63,7 @@ class BalanceSheet {
     const params = [];
 
     Object.keys(query).forEach(key => {
-      conditions.push(`${key} = ?`);
+      conditions.push(`${validateColumn(key)} = ?`);
       params.push(query[key]);
     });
 
@@ -101,17 +115,17 @@ class BalanceSheet {
     Object.keys(update).forEach(key => {
       if (key !== 'id' && key !== '_id') {
         if (key === 'assetBreakdown' || key === 'liabilityBreakdown') {
-          fields.push(`${key} = ?`);
+          fields.push(`${validateColumn(key)} = ?`);
           values.push(JSON.stringify(update[key]));
         } else {
-          fields.push(`${key} = ?`);
+          fields.push(`${validateColumn(key)} = ?`);
           values.push(update[key]);
         }
       }
     });
-    
+
     values.push(existing.id);
-    
+
     const sql = `UPDATE balance_sheets SET ${fields.join(', ')}, updatedAt = ? WHERE id = ?`;
     const stmt = db.prepare(sql);
     stmt.run(...values, new Date().toISOString());
@@ -125,7 +139,7 @@ class BalanceSheet {
     const params = [];
 
     Object.keys(query).forEach(key => {
-      conditions.push(`${key} = ?`);
+      conditions.push(`${validateColumn(key)} = ?`);
       params.push(query[key]);
     });
 

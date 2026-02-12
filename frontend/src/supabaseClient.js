@@ -159,4 +159,85 @@ export const validateEmail = (email) => {
   return emailRegex.test(email);
 };
 
+// ============================
+// Multi-Factor Authentication
+// ============================
+
+/**
+ * Enroll a new TOTP factor for MFA
+ * Returns a QR code URI and factor ID for the user to scan
+ * @param {string} friendlyName - A display name for the factor (e.g. "My Authenticator App")
+ * @returns {Promise<{data, error}>}
+ */
+export const enrollMFA = async (friendlyName = 'Authenticator App') => {
+  const { data, error } = await supabase.auth.mfa.enroll({
+    factorType: 'totp',
+    friendlyName
+  });
+  return { data, error };
+};
+
+/**
+ * Create an MFA challenge for a given factor
+ * Must be called before verifyMFA during login
+ * @param {string} factorId - The factor ID to challenge
+ * @returns {Promise<{data, error}>}
+ */
+export const challengeMFA = async (factorId) => {
+  const { data, error } = await supabase.auth.mfa.challenge({ factorId });
+  return { data, error };
+};
+
+/**
+ * Verify an MFA challenge with a TOTP code
+ * Used both during enrollment verification and login verification
+ * @param {string} factorId - The factor ID
+ * @param {string} challengeId - The challenge ID from challengeMFA
+ * @param {string} code - The 6-digit TOTP code from the authenticator app
+ * @returns {Promise<{data, error}>}
+ */
+export const verifyMFA = async (factorId, challengeId, code) => {
+  const { data, error } = await supabase.auth.mfa.verify({
+    factorId,
+    challengeId,
+    code
+  });
+  return { data, error };
+};
+
+/**
+ * Unenroll (remove) an MFA factor
+ * @param {string} factorId - The factor ID to remove
+ * @returns {Promise<{data, error}>}
+ */
+export const unenrollMFA = async (factorId) => {
+  const { data, error } = await supabase.auth.mfa.unenroll({ factorId });
+  return { data, error };
+};
+
+/**
+ * Get the user's current MFA factors and determine the assurance level
+ * @returns {Promise<{factors: Array, currentLevel: string, nextLevel: string|null}>}
+ */
+export const getMFAStatus = async () => {
+  try {
+    const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (error) return { factors: [], currentLevel: null, nextLevel: null, error };
+
+    // Also get the list of factors
+    const { data: factorsData } = await supabase.auth.mfa.listFactors();
+    const verifiedFactors = (factorsData?.totp || []).filter(f => f.status === 'verified');
+
+    return {
+      factors: verifiedFactors,
+      currentLevel: data.currentLevel,       // 'aal1' (password only) or 'aal2' (password + MFA)
+      nextLevel: data.nextLevel,             // 'aal2' if MFA is needed, null if satisfied
+      currentAuthenticationMethods: data.currentAuthenticationMethods,
+      error: null
+    };
+  } catch (error) {
+    return { factors: [], currentLevel: null, nextLevel: null, error };
+  }
+};
+
 export default supabase;

@@ -1,5 +1,18 @@
 const { getDatabase } = require('../database');
 
+const VALID_COLUMNS = new Set([
+  'id', 'clientId', 'monthYear', 'date', 'year', 'cashFlow', 'netWorth',
+  'clientProfile', 'transactionsProcessed', 'lastProcessedAt', 'reviewStatus',
+  'createdAt', 'updatedAt'
+]);
+
+function validateColumn(col) {
+  if (!VALID_COLUMNS.has(col)) {
+    throw new Error(`Invalid column name: ${col}`);
+  }
+  return col;
+}
+
 class MonthlySummary {
   static find(query = {}) {
     const db = getDatabase();
@@ -9,7 +22,7 @@ class MonthlySummary {
 
     if (Object.keys(query).length > 0) {
       Object.keys(query).forEach(key => {
-        conditions.push(`${key} = ?`);
+        conditions.push(`${validateColumn(key)} = ?`);
         params.push(query[key]);
       });
       sql += ' WHERE ' + conditions.join(' AND ');
@@ -29,7 +42,7 @@ class MonthlySummary {
     const params = [];
 
     Object.keys(query).forEach(key => {
-      conditions.push(`${key} = ?`);
+      conditions.push(`${validateColumn(key)} = ?`);
       params.push(query[key]);
     });
 

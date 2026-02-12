@@ -23,6 +23,13 @@ const Investment = require('./models-supabase/Investment');
 const BalanceSheet = require('./models-supabase/BalanceSheet');
 const InvestmentSnapshot = require('./models-supabase/InvestmentSnapshot');
 
+// Sanitize user input for use in Supabase .or() PostgREST filter strings.
+// Escapes characters that have special meaning in PostgREST filters:
+// commas (OR separator), periods (operator separator), backslashes, and parentheses.
+function sanitizePostgrestValue(value) {
+  return value.replace(/[\\,.*()]/g, char => '\\' + char);
+}
+
 const app = express();
 app.set('trust proxy', 1); // Trust first proxy (Render)
 
@@ -571,7 +578,7 @@ app.post('/api/clients/:clientId/bulk-update-by-keyword', requireAuth, ensureCli
         .from('transactions')
         .select('id') // Select only the ID
         .eq('clientId', clientId)
-        .or(`merchant_name.ilike.%${keyword}%,name.ilike.%${keyword}%`); // Case-insensitive LIKE
+        .or(`merchant_name.ilike.%${sanitizePostgrestValue(keyword)}%,name.ilike.%${sanitizePostgrestValue(keyword)}%`);
 
       if (findError) {
         console.error(`Error finding transactions for keyword "${keyword}":`, findError);
@@ -633,7 +640,7 @@ app.post('/api/clients/:clientId/bulk-update-by-keyword', requireAuth, ensureCli
         .from('transactions')
         .select('id') // Select only the ID
         .eq('clientId', clientId)
-        .or(`merchant_name.ilike.%${keyword}%,name.ilike.%${keyword}%`); // Case-insensitive LIKE
+        .or(`merchant_name.ilike.%${sanitizePostgrestValue(keyword)}%,name.ilike.%${sanitizePostgrestValue(keyword)}%`);
 
       if (findError) {
         console.error(`Error finding transactions for keyword "${keyword}":`, findError);

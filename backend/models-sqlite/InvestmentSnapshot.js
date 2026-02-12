@@ -1,5 +1,18 @@
 const { getDatabase } = require('../database');
 
+const VALID_COLUMNS = new Set([
+  'id', 'clientId', 'snapshotDate', 'monthYear',
+  'totalValue', 'totalByTaxType', 'holdingsByAccount',
+  'assetClassBreakdown', 'createdAt', 'updatedAt'
+]);
+
+function validateColumn(col) {
+  if (!VALID_COLUMNS.has(col)) {
+    throw new Error(`Invalid column name: ${col}`);
+  }
+  return col;
+}
+
 class InvestmentSnapshot {
   static find(query = {}, options = {}) {
     const db = getDatabase();
@@ -49,7 +62,7 @@ class InvestmentSnapshot {
     const params = [];
 
     Object.keys(query).forEach(key => {
-      conditions.push(`${key} = ?`);
+      conditions.push(`${validateColumn(key)} = ?`);
       params.push(query[key]);
     });
 

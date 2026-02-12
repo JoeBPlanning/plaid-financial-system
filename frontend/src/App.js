@@ -14,7 +14,12 @@ import {
   updatePassword,
   onAuthStateChange,
   validatePassword,
-} from './supabaseClient'; // Removed unused 'config' import
+  enrollMFA,
+  challengeMFA,
+  verifyMFA,
+  unenrollMFA,
+  getMFAStatus,
+} from './supabaseClient';
 import Footer from './components/Footer';
 import DataSecurityModal from './components/DataSecurityModal';
 
@@ -99,6 +104,17 @@ function App() {
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [showDataSecurityModal, setShowDataSecurityModal] = useState(false);
   const [showInactivityWarning, setShowInactivityWarning] = useState(false);
+
+  // MFA state
+  const [mfaFactorId, setMfaFactorId] = useState(null);
+  const [mfaChallengeId, setMfaChallengeId] = useState(null);
+  const [mfaCode, setMfaCode] = useState('');
+  const [mfaQrCode, setMfaQrCode] = useState(null);
+  const [mfaSecret, setMfaSecret] = useState(null);
+  const [mfaEnrolling, setMfaEnrolling] = useState(false);
+  const [mfaEnabled, setMfaEnabled] = useState(false);
+  const [showMfaSetup, setShowMfaSetup] = useState(false);
+  const [mfaPendingUser, setMfaPendingUser] = useState(null);
 
   // Auth form state
   const [authForm, setAuthForm] = useState({
@@ -456,7 +472,29 @@ function App() {
         return;
       }
 
-      // Create client object
+      // Check if the user has MFA enabled
+      const mfaStatus = await getMFAStatus();
+      if (mfaStatus.nextLevel === 'aal2' && mfaStatus.factors.length > 0) {
+        // User has MFA - need to verify before granting access
+        const factor = mfaStatus.factors[0];
+        const { data: challengeData, error: challengeError } = await challengeMFA(factor.id);
+
+        if (challengeError) {
+          setAuthError('Failed to initiate MFA challenge. Please try again.');
+          setLoading(false);
+          return;
+        }
+
+        // Store MFA state and show verification screen
+        setMfaFactorId(factor.id);
+        setMfaChallengeId(challengeData.id);
+        setMfaPendingUser(data);
+        setStep('mfa-verify');
+        setLoading(false);
+        return;
+      }
+
+      // No MFA - proceed directly to dashboard
       const clientData = {
         clientId: data.user.id,
         name: data.user.user_metadata?.name || data.user.email,
@@ -468,7 +506,7 @@ function App() {
       setClient(clientData);
       setStep('dashboard');
 
-      // Load dashboard data (disabled temporarily for debugging)
+      // Load dashboard data
       console.log('User logged in successfully - fetching user data...');
       await loadMonthlySummary(data.user.id, selectedMonth);
       await checkUnreviewedTransactions(data.user.id);
@@ -574,6 +612,185 @@ function App() {
     }
     setLoading(false);
   };
+
+  // Handle MFA verification during login
+  const handleMfaVerify = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    setLoading(true);
+
+    try {
+      if (!mfaCode || mfaCode.length !== 6) {
+        setAuthError('Please enter a valid 6-digit code');
+        setLoading(false);
+        return;
+      }
+
+      const { data: verifyData, error: verifyError } = await verifyMFA(
+        mfaFactorId,
+        mfaChallengeId,
+        mfaCode
+      );
+
+      if (verifyError) {
+        setAuthError('Invalid verification code. Please try again.');
+        // Create a new challenge for retry
+        const { data: newChallenge } = await challengeMFA(mfaFactorId);
+        if (newChallenge) {
+          setMfaChallengeId(newChallenge.id);
+        }
+        setMfaCode('');
+        setLoading(false);
+        return;
+      }
+
+      // MFA verified successfully - proceed to dashboard
+      const pendingData = mfaPendingUser;
+      const clientData = {
+        clientId: pendingData.user.id,
+        name: pendingData.user.user_metadata?.name || pendingData.user.email,
+        email: pendingData.user.email
+      };
+
+      setUser(pendingData.user);
+      setSession(verifyData.session || pendingData.session);
+      setClient(clientData);
+      setMfaPendingUser(null);
+      setMfaFactorId(null);
+      setMfaChallengeId(null);
+      setMfaCode('');
+      setStep('dashboard');
+
+      console.log('MFA verified - fetching user data...');
+      await loadMonthlySummary(pendingData.user.id, selectedMonth);
+      await checkUnreviewedTransactions(pendingData.user.id);
+      await loadCurrentNetWorth(pendingData.user.id);
+
+    } catch (error) {
+      console.error('MFA verification error:', error);
+      setAuthError('Verification failed. Please try again.');
+    }
+    setLoading(false);
+  };
+
+  // Handle MFA enrollment - start
+  const handleMfaEnroll = async () => {
+    setAuthError('');
+    setMfaEnrolling(true);
+
+    try {
+      const { data, error } = await enrollMFA('Authenticator App');
+
+      if (error) {
+        setAuthError('Failed to start MFA enrollment: ' + error.message);
+        setMfaEnrolling(false);
+        return;
+      }
+
+      // data contains: id (factorId), totp.qr_code (data URI), totp.secret, totp.uri
+      setMfaFactorId(data.id);
+      setMfaQrCode(data.totp.qr_code);
+      setMfaSecret(data.totp.secret);
+      setShowMfaSetup(true);
+
+    } catch (error) {
+      console.error('MFA enrollment error:', error);
+      setAuthError('Failed to set up two-factor authentication.');
+      setMfaEnrolling(false);
+    }
+  };
+
+  // Handle MFA enrollment - verify the code to complete setup
+  const handleMfaEnrollVerify = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    setLoading(true);
+
+    try {
+      if (!mfaCode || mfaCode.length !== 6) {
+        setAuthError('Please enter a valid 6-digit code');
+        setLoading(false);
+        return;
+      }
+
+      // Create a challenge and verify it to complete enrollment
+      const { data: challengeData, error: challengeError } = await challengeMFA(mfaFactorId);
+
+      if (challengeError) {
+        setAuthError('Failed to create verification challenge: ' + challengeError.message);
+        setLoading(false);
+        return;
+      }
+
+      const { error: verifyError } = await verifyMFA(
+        mfaFactorId,
+        challengeData.id,
+        mfaCode
+      );
+
+      if (verifyError) {
+        setAuthError('Invalid code. Please check your authenticator app and try again.');
+        setMfaCode('');
+        setLoading(false);
+        return;
+      }
+
+      // Enrollment successful
+      setMfaEnabled(true);
+      setShowMfaSetup(false);
+      setMfaEnrolling(false);
+      setMfaQrCode(null);
+      setMfaSecret(null);
+      setMfaCode('');
+      setMfaFactorId(null);
+      setAuthSuccess('Two-factor authentication has been enabled successfully!');
+
+      setTimeout(() => setAuthSuccess(''), 5000);
+
+    } catch (error) {
+      console.error('MFA enrollment verify error:', error);
+      setAuthError('Failed to verify code. Please try again.');
+    }
+    setLoading(false);
+  };
+
+  // Handle MFA disable
+  const handleMfaDisable = async () => {
+    setAuthError('');
+    setLoading(true);
+
+    try {
+      const mfaStatus = await getMFAStatus();
+      if (mfaStatus.factors.length > 0) {
+        const { error } = await unenrollMFA(mfaStatus.factors[0].id);
+        if (error) {
+          setAuthError('Failed to disable two-factor authentication: ' + error.message);
+          setLoading(false);
+          return;
+        }
+      }
+
+      setMfaEnabled(false);
+      setAuthSuccess('Two-factor authentication has been disabled.');
+      setTimeout(() => setAuthSuccess(''), 5000);
+
+    } catch (error) {
+      console.error('MFA disable error:', error);
+      setAuthError('Failed to disable two-factor authentication.');
+    }
+    setLoading(false);
+  };
+
+  // Check MFA status when user is authenticated
+  useEffect(() => {
+    const checkMfaStatus = async () => {
+      if (user && session) {
+        const status = await getMFAStatus();
+        setMfaEnabled(status.factors.length > 0);
+      }
+    };
+    checkMfaStatus();
+  }, [user, session]);
 
   // Handle logout
   const handleLogout = async () => {
@@ -685,8 +902,8 @@ function App() {
   }
 
 
-  // Login/Register/ForgotPassword Screen
-  if (step === 'login') {
+  // Login/Register/ForgotPassword/MFA Screen
+  if (step === 'login' || step === 'mfa-verify') {
     return (
       <div className="app">
         <div className="login-container">
@@ -884,7 +1101,7 @@ function App() {
           )}
 
           {/* Login Form */}
-          {!isPasswordReset && authMode === 'login' && (
+          {!isPasswordReset && authMode === 'login' && step !== 'mfa-verify' && (
             <form onSubmit={handleLogin} className="login-form">
               <h2 style={{ marginTop: 0, marginBottom: '20px', color: '#2D5074' }}>Login</h2>
 
@@ -951,6 +1168,80 @@ function App() {
                   }}
                 >
                   Sign up
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* MFA Verification Form (shown after password login) */}
+          {!isPasswordReset && authMode === 'login' && step === 'mfa-verify' && (
+            <form onSubmit={handleMfaVerify} className="login-form">
+              <h2 style={{ marginTop: 0, marginBottom: '10px', color: '#2D5074' }}>Two-Factor Authentication</h2>
+              <p style={{ fontSize: '0.9em', color: '#666', marginBottom: '20px' }}>
+                Enter the 6-digit code from your authenticator app.
+              </p>
+
+              {authError && (
+                <div className="auth-message error">{authError}</div>
+              )}
+
+              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                <div style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '60px',
+                  height: '60px',
+                  borderRadius: '50%',
+                  backgroundColor: '#e3f2fd',
+                  marginBottom: '15px'
+                }}>
+                  <span style={{ fontSize: '28px' }}>&#128274;</span>
+                </div>
+              </div>
+
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength="6"
+                placeholder="000000"
+                value={mfaCode}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, '');
+                  setMfaCode(val);
+                }}
+                autoFocus
+                style={{
+                  textAlign: 'center',
+                  fontSize: '24px',
+                  letterSpacing: '8px',
+                  fontFamily: 'monospace',
+                  fontWeight: 'bold'
+                }}
+                required
+              />
+
+              <button type="submit" disabled={loading || mfaCode.length !== 6} style={{ marginBottom: '15px' }}>
+                {loading ? 'Verifying...' : 'Verify Code'}
+              </button>
+
+              <div className="auth-toggle">
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => {
+                    // Cancel MFA and go back to login
+                    signOut();
+                    setStep('login');
+                    setMfaPendingUser(null);
+                    setMfaFactorId(null);
+                    setMfaChallengeId(null);
+                    setMfaCode('');
+                    setAuthError('');
+                  }}
+                >
+                  Back to login
                 </button>
               </div>
             </form>
@@ -1171,6 +1462,176 @@ function App() {
             {loading ? 'Updating...' : 'Refresh Financial Data'}
           </button>
         </div>
+
+        {/* MFA Setup Section */}
+        {showMfaSetup && (
+          <div className="mfa-setup-container">
+            <h3>Set Up Two-Factor Authentication</h3>
+            <p>Scan the QR code below with your authenticator app (Google Authenticator, Authy, etc.):</p>
+
+            {authError && (
+              <div className="auth-message error" style={{ marginBottom: '15px' }}>{authError}</div>
+            )}
+
+            <div className="mfa-qr-section">
+              {mfaQrCode && (
+                <img
+                  src={mfaQrCode}
+                  alt="MFA QR Code"
+                  className="mfa-qr-code"
+                />
+              )}
+
+              {mfaSecret && (
+                <div className="mfa-secret">
+                  <p style={{ fontSize: '0.85em', color: '#666', marginBottom: '5px' }}>
+                    Can't scan? Enter this code manually:
+                  </p>
+                  <code className="mfa-secret-code">{mfaSecret}</code>
+                </div>
+              )}
+            </div>
+
+            <form onSubmit={handleMfaEnrollVerify} className="mfa-verify-form">
+              <label style={{ fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                Enter the 6-digit code from your app to confirm:
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength="6"
+                placeholder="000000"
+                value={mfaCode}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, '');
+                  setMfaCode(val);
+                }}
+                autoFocus
+                style={{
+                  textAlign: 'center',
+                  fontSize: '24px',
+                  letterSpacing: '8px',
+                  fontFamily: 'monospace',
+                  fontWeight: 'bold',
+                  maxWidth: '250px',
+                  margin: '0 auto 15px auto',
+                  display: 'block'
+                }}
+                required
+              />
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                <button
+                  type="submit"
+                  disabled={loading || mfaCode.length !== 6}
+                  style={{
+                    padding: '10px 24px',
+                    backgroundColor: '#28a745',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    fontSize: '14px'
+                  }}
+                >
+                  {loading ? 'Verifying...' : 'Enable 2FA'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMfaSetup(false);
+                    setMfaEnrolling(false);
+                    setMfaQrCode(null);
+                    setMfaSecret(null);
+                    setMfaCode('');
+                    setMfaFactorId(null);
+                    setAuthError('');
+                    // Unenroll the pending factor since user cancelled
+                    if (mfaFactorId) {
+                      unenrollMFA(mfaFactorId).catch(() => {});
+                    }
+                  }}
+                  style={{
+                    padding: '10px 24px',
+                    backgroundColor: '#6c757d',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    fontSize: '14px'
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Two-Factor Authentication Toggle */}
+        {!showMfaSetup && (
+          <div className="mfa-toggle-section">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <span style={{ fontWeight: '600', fontSize: '15px' }}>Two-Factor Authentication</span>
+                <span style={{
+                  marginLeft: '10px',
+                  padding: '3px 10px',
+                  borderRadius: '12px',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  backgroundColor: mfaEnabled ? '#d4edda' : '#f8d7da',
+                  color: mfaEnabled ? '#155724' : '#721c24'
+                }}>
+                  {mfaEnabled ? 'Enabled' : 'Disabled'}
+                </span>
+              </div>
+              {mfaEnabled ? (
+                <button
+                  onClick={handleMfaDisable}
+                  disabled={loading}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#dc3545',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    fontSize: '13px'
+                  }}
+                >
+                  {loading ? 'Disabling...' : 'Disable 2FA'}
+                </button>
+              ) : (
+                <button
+                  onClick={handleMfaEnroll}
+                  disabled={mfaEnrolling}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#28a745',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    fontSize: '13px'
+                  }}
+                >
+                  {mfaEnrolling ? 'Setting up...' : 'Enable 2FA'}
+                </button>
+              )}
+            </div>
+            {authSuccess && (
+              <div className="auth-message success" style={{ marginTop: '10px' }}>{authSuccess}</div>
+            )}
+            {authError && (
+              <div className="auth-message error" style={{ marginTop: '10px' }}>{authError}</div>
+            )}
+          </div>
+        )}
 
         {monthlySummary ? (
           <div>

@@ -1,5 +1,20 @@
 const { getDatabase } = require('../database');
 
+const VALID_COLUMNS = new Set([
+  'id', 'clientId', 'accountId', 'accountName', 'accountType', 'accountSubtype',
+  'securityId', 'securityName', 'securityTicker', 'securityType',
+  'quantity', 'price', 'value', 'costBasis',
+  'institutionName', 'institutionId', 'itemId', 'accountTaxType',
+  'lastUpdated', 'createdAt', 'updatedAt'
+]);
+
+function validateColumn(col) {
+  if (!VALID_COLUMNS.has(col)) {
+    throw new Error(`Invalid column name: ${col}`);
+  }
+  return col;
+}
+
 class Investment {
   static find(query = {}, options = {}) {
     const db = getDatabase();
@@ -41,7 +56,7 @@ class Investment {
     const params = [];
 
     Object.keys(query).forEach(key => {
-      conditions.push(`${key} = ?`);
+      conditions.push(`${validateColumn(key)} = ?`);
       params.push(query[key]);
     });
 
@@ -103,11 +118,11 @@ class Investment {
     
     Object.keys(update).forEach(key => {
       if (key !== 'id' && key !== '_id') {
-        fields.push(`${key} = ?`);
+        fields.push(`${validateColumn(key)} = ?`);
         values.push(update[key]);
       }
     });
-    
+
     // Add lastUpdated timestamp, then id for WHERE clause
     values.push(new Date().toISOString());
     values.push(existing.id);
@@ -125,7 +140,7 @@ class Investment {
     const params = [];
 
     Object.keys(query).forEach(key => {
-      conditions.push(`${key} = ?`);
+      conditions.push(`${validateColumn(key)} = ?`);
       params.push(query[key]);
     });
 

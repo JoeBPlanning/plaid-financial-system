@@ -10,6 +10,11 @@ const { requireSupabaseAuth, requireAdvisor } = require('../middleware/supabase-
 const { body, param, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 
+// Sanitize user input for use in Supabase .or() PostgREST filter strings.
+function sanitizePostgrestValue(value) {
+  return value.replace(/[\\,.*()]/g, char => '\\' + char);
+}
+
 // Rate limiters
 const inviteGenerateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -216,7 +221,7 @@ router.get(
       // Search by name or email
       if (search) {
         query = query.or(
-          `client_name.ilike.%${search}%,email.ilike.%${search}%`
+          `client_name.ilike.%${sanitizePostgrestValue(search)}%,email.ilike.%${sanitizePostgrestValue(search)}%`
         );
       }
 

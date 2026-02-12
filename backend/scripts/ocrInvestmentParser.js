@@ -10,7 +10,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const Tesseract = require('tesseract.js');
 const os = require('os');
 
@@ -39,7 +39,7 @@ async function pdfToImages(pdfPath) {
   
   try {
     // Use pdftoppm to convert PDF to PNG images (300 DPI for good OCR)
-    execSync(`pdftoppm -png -r 300 "${pdfPath}" "${outputPrefix}"`, {
+    execFileSync('pdftoppm', ['-png', '-r', '300', pdfPath, outputPrefix], {
       stdio: ['pipe', 'pipe', 'pipe']
     });
     
